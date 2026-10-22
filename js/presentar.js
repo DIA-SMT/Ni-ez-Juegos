@@ -1,0 +1,554 @@
+// Pantalla para proyectar: QR gigante con la sala de espera, resultados en
+// vivo pregunta por pregunta y el podio del quiz. Se maneja con flechas,
+// con el control de diapositivas (PageUp/PageDown) o con los botones.
+import { api, MODO_LOCAL, clave as claveEquipo } from './api.js';
+import { OTRO, TIPOS, ESCALA, aplicarTema, ficha, forma, evaluable, agregar, aCsv, emojiDe, aliasSeguro } from './juego.js';
+import { icono } from './iconos.js';
+import { qrHtml } from './qr.js';
+import { esc, almacen, toast, descargar, copiar, plural, confeti } from './util.js';
+
+const app = document.getElementById('app');
+const codigo = (new URLSearchParams(location.search).get('c') || location.pathname.split('/').filter(Boolean)[1] || '').toLowerCase();
+const urlQuiz = `${location.origin}/${codigo}`;
+const urlVisible = `${location.host}/${codigo}`;
+const K_SLIDE = `pres:${codigo}:slide`;
+const K_OCULTAS = `pres:${codigo}:ocultas`;
+const MAX_MURO = 80;
+const MAX_NUBE = 50;
+const MAX_LOBBY = 40;
+
+let clave = MODO_LOCAL ? 'local' : claveEquipo.leer();
+let quiz = null;
+let def = null;
+let esQuiz = false;
+let firmaDef = '';
+let filas = [];
+let ultimoId = 0;
+let slide = 0;
+let conexion = 'ok';
+let timer = null;
+const revelado = new Set();      // preguntas con respuestas abiertas visibles
+const conCorrecta = new Set();   // preguntas del quiz con la correcta a la vista
+const ocultas = new Set(almacen.leer(K_OCULTAS) || []);
+const vistos = new Set();
+const firmas = {};
+
+const n = () => def.preguntas.length;
+const ultimaSlide = () => n() + (esQuiz ? 1 : 0);
+
+/* ── Arranque ── */
+if (MODO_LOCAL) document.body.insertAdjacentHTML('beforeend', '<p class="aviso-local">MODO LOCAL</p>');
+if (!codigo) mensaje('Falta el código del quiz', 'Abrí esta pantalla desde el panel.', '<a class="boton boton--amarillo" href="/panel">Ir al panel</a>');
+else if (!clave) pedirClave();
+else cargar();
+
+async function cargar() {
+  try {
+    const r = await api.resultados(clave, codigo, 0);
+    recibir(r, true);
+    if (!MODO_LOCAL) claveEquipo.guardar(clave);
+    filas.forEach((f) => vistos.add(f.id));
+    esqueleto();
+    irA(Number(almacen.leer(K_SLIDE, true)) || 0);
+    programar();
+  } catch (e) {
+    if (e.codigo === 'clave') { claveEquipo.olvidar(); pedirClave(clave ? 'La clave no es correcta.' : ''); }
+    else if (e.codigo === 'no-existe') mensaje('No existe ese quiz', `No hay ningún quiz con el código «${codigo}».`, '<a class="boton boton--amarillo" href="/panel">Ir al panel</a>');
+    else mensaje('No se pudo conectar', 'Revisá la conexión a internet.', '<button class="boton boton--amarillo" data-accion="recargar">Reintentar</button>');
+  }
+}
+
+function recibir(r, completo) {
+  quiz = r.quiz;
+  const f = JSON.stringify(quiz.def);
+  const cambioDef = f !== firmaDef;
+  firmaDef = f;
+  def = quiz.def;
+  esQuiz = def.modo === 'quiz';
+  if (cambioDef) { aplicarTema(def.tema); document.title = `${def.titulo} · En vivo`; }
+  const llegadas = (r.filas || []).filter((x) => x && Number.isFinite(x.id) && x.d && typeof x.d === 'object');
+  filas = completo ? llegadas : filas.concat(llegadas.filter((x) => x.id > ultimoId));
+  ultimoId = filas.reduce((m, x) => Math.max(m, x.id), 0);
+  return { cambioDef, hay: llegadas.length > 0 };
+}
+
+function programar() {
+  clearTimeout(timer);
+  timer = setTimeout(ciclo, document.hidden ? 15000 : 3000);
+}
+
+async function ciclo() {
+  try {
+    let r = await api.resultados(clave, codigo, ultimoId);
+    let completo = false;
+    const nuevas = (r.filas || []).filter((x) => x.id > ultimoId).length;
+    if (typeof r.total === 'number' && r.total !== filas.length + nuevas) {
+      r = await api.resultados(clave, codigo, 0);   // se borraron respuestas: todo de nuevo
+      completo = true;
+    }
+    const { cambioDef, hay } = recibir(r, completo);
+    conexion = 'ok';
+    if (cambioDef) { renderNav(); irA(Math.min(slide, ultimaSlide()), false); }
+    else if (hay || completo) actualizar(false);
+    else actualizarVivo();
+  } catch (e) {
+    if (e.codigo === 'clave') { claveEquipo.olvidar(); clearTimeout(timer); return pedirClave('La clave dejó de ser válida.'); }
+    conexion = 'error';
+    actualizarVivo();
+  }
+  programar();
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && def) ciclo(); });
+
+/* ── Pantallas sueltas ── */
+function mensaje(titulo, texto, extra = '') {
+  app.innerHTML = `<div class="mensaje marca"><div class="mensaje-caja">
+    <img class="logo-ciudad" src="/img/logo-smt-blanco.png" width="507" height="206" alt="Ciudad de San Miguel de Tucumán">
+    <h1>${esc(titulo)}</h1><p>${esc(texto)}</p>${extra}</div></div>`;
+}
+
+function pedirClave(error = '') {
+  app.innerHTML = `<div class="mensaje marca"><form class="clave-tarjeta" id="form-clave">
+    <img src="/img/isologo.png" width="56" height="56" alt="">
+    <h1>Resultados en vivo</h1>
+    <p>Ingresá la clave del equipo para ver las respuestas de <b>${esc(codigo)}</b>.</p>
+    <label class="etiqueta" for="clave">Clave del equipo</label>
+    <input id="clave" class="campo" type="password" autocomplete="current-password" required>
+    ${error ? `<p class="clave-error" role="alert">${esc(error)}</p>` : ''}
+    <button class="boton boton--primario">Entrar ${icono('flecha-der')}</button>
+  </form></div>`;
+  document.getElementById('clave').focus();
+}
+
+/* ── Esqueleto ── */
+function esqueleto() {
+  app.innerHTML = `
+    <div class="pres" id="pres">
+      <header class="pres-top">
+        <img class="pres-isologo" src="/img/isologo.png" alt="" width="44" height="44">
+        <div class="pres-encabezado">
+          <p class="pres-titulo" id="pres-titulo"></p>
+          <p class="pres-paso" id="pres-paso"></p>
+        </div>
+        ${vivoHtml()}
+        <button class="pres-qr-mini" data-ir="0" aria-label="Mostrar el código QR grande">
+          ${qrHtml(urlQuiz)}<span class="pres-qr-url"><small>Sumate en</small>${esc(urlVisible)}</span>
+        </button>
+      </header>
+      <main class="pres-main" id="slide"></main>
+      <nav class="pres-nav" id="nav" aria-label="Diapositivas"></nav>
+    </div>`;
+  renderNav();
+}
+
+function vivoHtml(extra = '') {
+  return `<p class="vivo ${extra}" data-estado="${conexion}"><span class="vivo-punto"></span><b data-vivo-n>${filas.length}</b>
+    <span data-vivo-txt>${filas.length === 1 ? (esQuiz ? 'jugador' : 'respuesta') : (esQuiz ? 'jugadores' : 'respuestas')}</span><span class="vivo-error">· reconectando</span></p>`;
+}
+
+function renderNav() {
+  const puntos = [`<li><button class="nav-punto nav-punto--qr" data-ir="0" aria-label="Inicio con el código QR">${icono('qr')}</button></li>`]
+    .concat(def.preguntas.map((p, k) => `<li><button class="nav-punto" data-ir="${k + 1}" title="${esc(p.texto)}">${k + 1}</button></li>`));
+  if (esQuiz) puntos.push(`<li><button class="nav-punto nav-punto--podio" data-ir="${n() + 1}" aria-label="Podio">${icono('trofeo')}</button></li>`);
+  document.getElementById('nav').innerHTML = `
+    <button class="nav-flecha" data-accion="anterior" aria-label="Anterior">${icono('chevron-izq')}</button>
+    <ol class="nav-puntos">${puntos.join('')}</ol>
+    <button class="nav-flecha" data-accion="siguiente" aria-label="Siguiente">${icono('chevron-der')}</button>
+    <span class="nav-espacio"></span>
+    <button class="nav-boton" data-accion="pantalla-completa">${icono('maximizar')}<span>Pantalla completa</span></button>
+    <details class="menu">
+      <summary class="nav-boton" aria-label="Más opciones">${icono('mas')}</summary>
+      <div class="menu-lista">
+        <button data-accion="copiar">${icono('enlace')} Copiar link para participar</button>
+        <button data-accion="csv">${icono('descargar')} Descargar respuestas (CSV)</button>
+        <a href="/panel">${icono('lapiz')} Ir al panel</a>
+        <button data-accion="borrar" class="menu-peligro">${icono('papelera')} Borrar todas las respuestas</button>
+      </div>
+    </details>`;
+}
+
+/* ── Navegación ── */
+function irA(k, animar = true) {
+  if (!def) return;
+  slide = Math.max(0, Math.min(ultimaSlide(), k));
+  almacen.guardar(K_SLIDE, slide, true);
+  const pres = document.getElementById('pres');
+  const inicio = slide === 0;
+  pres.classList.toggle('pres--inicio', inicio);
+  pres.classList.toggle('marca', inicio);
+  const main = document.getElementById('slide');
+  Object.keys(firmas).forEach((x) => delete firmas[x]);
+  if (inicio) main.innerHTML = vistaInicio();
+  else if (slide <= n()) main.innerHTML = vistaPregunta(def.preguntas[slide - 1], slide);
+  else main.innerHTML = vistaPodio();
+  if (!animar) main.querySelector('.slide, .inicio, .podio-slide')?.classList.add('sin-animar');
+  document.getElementById('pres-titulo').textContent = def.titulo;
+  document.getElementById('pres-paso').textContent = inicio ? '' : slide <= n() ? `Pregunta ${slide} de ${n()}` : 'Podio';
+  document.querySelectorAll('.nav-puntos [data-ir]').forEach((b) => {
+    if (Number(b.dataset.ir) === slide) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current');
+  });
+  document.querySelector('[data-accion="anterior"]').disabled = slide === 0;
+  document.querySelector('[data-accion="siguiente"]').disabled = slide === ultimaSlide();
+  document.querySelector('.nav-puntos [aria-current]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  actualizar(animar);
+  if (slide === n() + 1 && esQuiz && filas.length && animar) setTimeout(() => confeti({ cantidad: 200 }), 700);
+}
+
+/* ── Vistas ── */
+function vistaInicio() {
+  return `<section class="inicio">
+    <div class="inicio-texto">
+      <img class="logo-ciudad" src="/img/logo-smt-blanco.png" width="507" height="206" alt="Ciudad de San Miguel de Tucumán">
+      <p class="chip-marca">${esc(def.etiqueta || (esQuiz ? 'Quiz' : 'Encuesta'))}</p>
+      <h1 class="inicio-titulo">${esc(def.titulo)}</h1>
+      ${def.subtitulo ? `<p class="inicio-subtitulo">${esc(def.subtitulo)}</p>` : ''}
+      <ol class="inicio-pasos">
+        <li><b>1</b>Abrí la cámara del celular</li>
+        <li><b>2</b>Apuntá al código QR</li>
+        <li><b>3</b>${esQuiz ? '¡Elegí tu apodo y a jugar!' : 'Respondé: es anónimo'}</li>
+      </ol>
+    </div>
+    <div class="inicio-qr">
+      <div class="inicio-qr-caja">${qrHtml(urlQuiz)}</div>
+      <p class="inicio-url">${esc(urlVisible)}</p>
+      ${vivoHtml('vivo--grande')}
+    </div>
+    ${esQuiz ? '<ul class="lobby" id="lobby" aria-label="Jugadores"></ul>' : ''}
+  </section>`;
+}
+
+function vistaPregunta(p, k) {
+  const multiple = p.tipo === 'multiple';
+  const nota = multiple ? ' · cada persona puede marcar varias' : p.tipo === 'nube' ? ' · palabras más repetidas, más grandes' : '';
+  return `<section class="slide">
+    <header class="slide-cabeza">
+      <div class="slide-cabeza-texto">
+        <p class="slide-num">Pregunta ${k} <span class="slide-tipo">${icono(TIPOS[p.tipo]?.icono || 'lista')} ${esc(TIPOS[p.tipo]?.nombre || '')}</span>
+          ${esQuiz && evaluable(p) ? `<span class="vale">${icono('rayo')} Vale puntos</span>` : ''}</p>
+        <h1 class="slide-texto">${esc(p.texto)}</h1>
+        <p class="slide-meta"><b id="meta-n">0</b> <span id="meta-txt">respuestas</span>${nota}</p>
+      </div>
+      <div class="slide-acciones" id="acciones"></div>
+    </header>
+    <div class="slide-cuerpo" id="cuerpo"></div>
+  </section>`;
+}
+
+function vistaPodio() {
+  return `<section class="podio-slide">
+    <h1 class="podio-titulo">${icono('trofeo')} Podio</h1>
+    <div class="podio" id="podio"></div>
+    <ol class="podio-resto" id="podio-resto"></ol>
+  </section>`;
+}
+
+/* ── Actualizar con datos nuevos ── */
+function actualizar(animar) {
+  actualizarVivo();
+  if (slide === 0) return actualizarLobby();
+  if (slide > n()) return actualizarPodio(animar);
+  const p = def.preguntas[slide - 1];
+  const a = agregar(p, filas);
+  document.getElementById('meta-n').textContent = a.total;
+  document.getElementById('meta-txt').textContent = a.total === 1 ? 'respuesta' : 'respuestas';
+  if (p.tipo === 'texto') return actualizarMuro(p, a);
+  if (p.tipo === 'nube') return actualizarNube(p, a);
+  if (p.tipo === 'escala') return actualizarEscala(p, a, animar);
+  actualizarBarras(p, a, animar);
+}
+
+function actualizarVivo() {
+  const total = filas.length;
+  document.querySelectorAll('[data-vivo-n]').forEach((el) => {
+    if (el.textContent !== String(total)) {
+      el.textContent = total;
+      el.classList.remove('hud--pop'); void el.offsetWidth; el.classList.add('hud--pop');
+    }
+  });
+  const txt = total === 1 ? (esQuiz ? 'jugador' : 'respuesta') : (esQuiz ? 'jugadores' : 'respuestas');
+  document.querySelectorAll('[data-vivo-txt]').forEach((el) => { el.textContent = txt; });
+  document.querySelectorAll('.vivo').forEach((el) => { el.dataset.estado = conexion; });
+}
+
+function cambio(clave, valor) {
+  if (firmas[clave] === valor) return false;
+  firmas[clave] = valor;
+  return true;
+}
+
+function animarAncho(el, valor, animar) {
+  if (animar) requestAnimationFrame(() => requestAnimationFrame(() => { el.style.width = valor; }));
+  else el.style.width = valor;
+}
+
+function actualizarBarras(p, a, animar) {
+  const cuerpo = document.getElementById('cuerpo');
+  const quizEval = esQuiz && evaluable(p);
+  const correctas = p.tipo === 'unica' ? [p.correcta] : (p.correctas || []);
+  const mostrarCorrecta = quizEval && conCorrecta.has(p.id);
+  if (cambio('barras', a.opciones.length + '|' + mostrarCorrecta)) {
+    cuerpo.innerHTML = `<ol class="barras${esQuiz ? ' barras--quiz' : ''}">${a.opciones.map((o, k) => {
+      const f = ficha(k);
+      const esC = mostrarCorrecta && correctas.includes(o.o);
+      const cls = `barra${o.o === OTRO ? ' barra--otro' : ''}${mostrarCorrecta ? (esC ? ' barra--correcta' : ' barra--atenuada') : ''}`;
+      return `<li class="${cls}" data-k="${k}" style="--f-fondo:${f.fondo};--f-texto:${f.texto}">
+        <div class="barra-cabeza">
+          ${esQuiz ? `<span class="barra-forma">${forma(k)}</span>` : ''}
+          <span class="barra-etiqueta">${esc(o.o)}</span>
+          ${esC ? `<span class="barra-ok">${icono('check')} Correcta</span>` : ''}
+          <span class="barra-valor"><b class="barra-pct">0%</b><span class="barra-n">0</span></span>
+        </div>
+        <div class="barra-pista"><div class="barra-relleno"></div></div>
+      </li>`;
+    }).join('')}</ol>${p.otro ? '<div class="otros" id="otros"></div>' : ''}`;
+    delete firmas.otros;
+    animar = true;
+  }
+  const max = Math.max(0, ...a.opciones.map((o) => o.n));
+  a.opciones.forEach((o, k) => {
+    const fila = cuerpo.querySelector(`.barra[data-k="${k}"]`);
+    if (!fila) return;
+    fila.querySelector('.barra-pct').textContent = `${Math.round(o.pct * 100)}%`;
+    fila.querySelector('.barra-n').textContent = o.n;
+    fila.classList.toggle('barra--lider', o.n > 0 && o.n === max);
+    animarAncho(fila.querySelector('.barra-relleno'), `${(o.pct * 100).toFixed(2)}%`, animar);
+  });
+  const acciones = document.getElementById('acciones');
+  if (cambio('acciones', String(mostrarCorrecta) + quizEval)) {
+    acciones.innerHTML = quizEval
+      ? `<button class="boton boton--chico${mostrarCorrecta ? '' : ' boton--primario'}" data-accion="correcta">
+          ${icono(mostrarCorrecta ? 'ojo-no' : 'ojo')} ${mostrarCorrecta ? 'Ocultar la correcta' : 'Mostrar la correcta'} <kbd>C</kbd></button>` : '';
+  }
+  if (p.otro) actualizarOtros(p, a.otros);
+}
+
+function actualizarOtros(p, otros) {
+  const cont = document.getElementById('otros');
+  const visibles = otros.filter((x) => !ocultas.has(`${p.id}_otro:${x.id}`));
+  const abierto = revelado.has(p.id);
+  if (!cambio('otros', `${abierto}|${visibles.map((x) => x.id).join(',')}`)) return;
+  if (!otros.length) { cont.innerHTML = ''; return; }
+  cont.innerHTML = `<div class="otros-cabeza">
+      <span>${icono('mensaje')} ${plural(otros.length, 'persona escribió', 'personas escribieron')} en «Otro»</span>
+      <button class="boton boton--chico" data-accion="revelar">${icono(abierto ? 'ojo-no' : 'ojo')} ${abierto ? 'Ocultar' : 'Mostrar'}</button>
+    </div>
+    ${abierto ? `<ul class="otros-lista">${visibles.slice(-30).reverse().map((x) => `
+      <li><span>${esc(x.texto)}</span><button data-ocultar="${esc(`${p.id}_otro:${x.id}`)}" aria-label="Ocultar">${icono('x')}</button></li>`).join('')}</ul>` : ''}`;
+}
+
+function actualizarEscala(p, a, animar) {
+  const cuerpo = document.getElementById('cuerpo');
+  if (cambio('escala', '1')) {
+    cuerpo.innerHTML = `<div class="escala-res">
+      <div class="escala-prom"><b id="prom">–</b><span>promedio</span><span class="escala-prom-emoji" id="prom-emoji"></span></div>
+      <ol class="escala-cols">${ESCALA.map((e, k) => `
+        <li class="escala-col" data-k="${k}">
+          <span class="escala-col-n">0</span>
+          <div class="escala-col-pista"><div class="escala-col-relleno"></div></div>
+          <span class="escala-col-emoji">${e}</span><b>${k + 1}</b>
+        </li>`).join('')}</ol>
+    </div>
+    ${p.min || p.max ? `<p class="escala-res-extremos"><span>1 = ${esc(p.min || '')}</span><span>5 = ${esc(p.max || '')}</span></p>` : ''}`;
+    animar = true;
+  }
+  document.getElementById('prom').textContent = a.total ? a.promedio.toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '–';
+  document.getElementById('prom-emoji').textContent = a.total ? ESCALA[Math.min(4, Math.max(0, Math.round(a.promedio) - 1))] : '';
+  const max = Math.max(1, ...a.opciones.map((o) => o.n));
+  a.opciones.forEach((o, k) => {
+    const col = cuerpo.querySelector(`.escala-col[data-k="${k}"]`);
+    col.querySelector('.escala-col-n').textContent = o.n;
+    const rel = col.querySelector('.escala-col-relleno');
+    const h = `${((o.n / max) * 100).toFixed(1)}%`;
+    if (animar) requestAnimationFrame(() => requestAnimationFrame(() => { rel.style.height = h; }));
+    else rel.style.height = h;
+  });
+}
+
+function cortina(p, cantidad, que) {
+  return `<div class="cortina">
+    ${icono('ojo-no', 'cortina-icono')}
+    <p class="cortina-titulo">${cantidad ? plural(cantidad, que[0], que[1]) : 'Todavía no hay respuestas'}</p>
+    <p class="cortina-texto">${cantidad ? 'Se muestran cuando las revelás. Si querés, miralas antes en tu compu.' : 'Van a ir llegando acá.'}</p>
+    ${cantidad ? `<button class="boton boton--primario" data-accion="revelar">${icono('ojo')} Mostrar <kbd>R</kbd></button>` : ''}
+  </div>`;
+}
+
+function accionesRevelar(p, nOcultas) {
+  const acciones = document.getElementById('acciones');
+  const abierto = revelado.has(p.id);
+  if (!cambio('acciones', `${abierto}|${nOcultas}`)) return;
+  acciones.innerHTML = abierto ? `
+    ${nOcultas ? `<button class="boton boton--chico boton--fantasma" data-accion="restaurar">${plural(nOcultas, 'oculta', 'ocultas')} · restaurar</button>` : ''}
+    <button class="boton boton--chico" data-accion="revelar">${icono('ojo-no')} Ocultar todo <kbd>R</kbd></button>` : '';
+}
+
+function actualizarMuro(p, a) {
+  const cuerpo = document.getElementById('cuerpo');
+  const visibles = a.textos.filter((x) => !ocultas.has(`${p.id}:${x.id}`));
+  accionesRevelar(p, a.textos.length - visibles.length);
+  const abierto = revelado.has(p.id);
+  if (!cambio('cuerpo', `${abierto}|${a.textos.length}|${visibles.map((x) => x.id).join(',')}`)) return;
+  if (!abierto) { cuerpo.innerHTML = cortina(p, a.textos.length, ['respuesta abierta', 'respuestas abiertas']); return; }
+  const muestra = visibles.slice(-MAX_MURO).reverse();
+  cuerpo.innerHTML = `<div class="muro">${muestra.map((x) => `
+    <article class="nota${vistos.has(x.id) ? '' : ' nota--nueva'}">
+      <p>${esc(x.texto)}</p>
+      <button class="nota-ocultar" data-ocultar="${esc(`${p.id}:${x.id}`)}" aria-label="Ocultar esta respuesta">${icono('x')}</button>
+    </article>`).join('')}</div>
+    ${visibles.length > MAX_MURO ? `<p class="muro-mas">Y ${visibles.length - MAX_MURO} más: están todas en el CSV.</p>` : ''}`;
+  muestra.forEach((x) => vistos.add(x.id));
+}
+
+const COLORES_NUBE = ['#0166FF', '#062B6B', '#047857', '#D92D20', '#6D28D9', '#0E7490', '#0077C2'];
+function actualizarNube(p, a) {
+  const cuerpo = document.getElementById('cuerpo');
+  const visibles = a.palabras.filter((w) => !ocultas.has(`${p.id}#${w.k}`));
+  accionesRevelar(p, a.palabras.length - visibles.length);
+  const abierto = revelado.has(p.id);
+  const top = visibles.slice(0, MAX_NUBE);
+  if (!cambio('cuerpo', `${abierto}|${a.palabras.length}|${top.map((w) => w.k + w.n).join(',')}`)) return;
+  if (!abierto) { cuerpo.innerHTML = cortina(p, a.palabras.length, ['palabra distinta', 'palabras distintas']); return; }
+  const max = top[0]?.n || 1;
+  // La más repetida al centro y el resto alternando a los costados.
+  const orden = [];
+  top.forEach((w, k) => (k % 2 ? orden.push(w) : orden.unshift(w)));
+  cuerpo.innerHTML = `<div class="nube">${orden.map((w) => {
+    const t = (0.95 + 3.4 * Math.pow(w.n / max, 0.75)).toFixed(2);
+    const color = COLORES_NUBE[[...w.k].reduce((h, c) => h + c.charCodeAt(0), 0) % COLORES_NUBE.length];
+    return `<button class="nube-palabra" style="font-size:${t}rem;color:${color}" data-ocultar="${esc(`${p.id}#${w.k}`)}" title="${plural(w.n, 'vez', 'veces')} · tocá para ocultar">${esc(w.texto)}</button>`;
+  }).join('')}</div>`;
+}
+
+function ranking() {
+  return filas.filter((f) => !ocultas.has(`alias:${f.id}`))
+    .slice().sort((x, y) => y.puntaje - x.puntaje || x.id - y.id);
+}
+
+function actualizarLobby() {
+  const lobby = document.getElementById('lobby');
+  if (!lobby) return;
+  const jugadores = filas.filter((f) => !ocultas.has(`alias:${f.id}`));
+  const ultimos = jugadores.slice(-MAX_LOBBY).reverse();
+  if (!cambio('lobby', ultimos.map((f) => f.id).join(','))) return;
+  lobby.innerHTML = ultimos.map((f) => `<li><button class="lobby-chip${vistos.has('l' + f.id) ? '' : ' lobby-chip--nuevo'}" data-ocultar="alias:${f.id}" title="Tocá para ocultar este apodo">
+      <span aria-hidden="true">${emojiDe(f.alias || '')}</span>${esc(aliasSeguro(f.alias))}</button></li>`).join('')
+    + (jugadores.length > MAX_LOBBY ? `<li class="lobby-mas">+${jugadores.length - MAX_LOBBY}</li>` : '');
+  ultimos.forEach((f) => vistos.add('l' + f.id));
+}
+
+function actualizarPodio(animar) {
+  const r = ranking();
+  if (!cambio('podio', r.slice(0, 10).map((f) => `${f.id}:${f.puntaje}`).join(','))) return;
+  const podio = document.getElementById('podio');
+  if (!r.length) {
+    podio.innerHTML = '<p class="podio-vacio">Cuando alguien termine el quiz, aparece acá.</p>';
+    document.getElementById('podio-resto').innerHTML = '';
+    return;
+  }
+  const max = r[0].puntaje || 1;
+  const lugar = (f, k) => f ? `<div class="podio-lugar podio-lugar--${k + 1}">
+      <button class="podio-quien" data-ocultar="alias:${f.id}" title="Tocá para ocultar este apodo">
+        <span class="podio-avatar">${emojiDe(f.alias || '')}</span>
+        <span class="podio-alias">${esc(aliasSeguro(f.alias))}</span>
+        <span class="podio-pts">${Number(f.puntaje).toLocaleString('es-AR')} pts</span>
+      </button>
+      <div class="podio-columna" style="--k:${(Math.max(0, f.puntaje) / max).toFixed(3)}"><b>${['🥇', '🥈', '🥉'][k]}</b></div>
+    </div>` : '<div class="podio-lugar podio-lugar--vacio"></div>';
+  podio.innerHTML = lugar(r[1], 1) + lugar(r[0], 0) + lugar(r[2], 2);
+  if (!animar) podio.classList.add('sin-animar');
+  document.getElementById('podio-resto').innerHTML = r.slice(3, 10).map((f, k) => `
+    <li><span class="podio-resto-pos">${k + 4}</span><span>${emojiDe(f.alias || '')}</span>
+    <span class="podio-resto-alias">${esc(aliasSeguro(f.alias))}</span><b>${Number(f.puntaje).toLocaleString('es-AR')}</b></li>`).join('');
+}
+
+/* ── Acciones ── */
+function alternarRevelar() {
+  if (slide < 1 || slide > n()) return;
+  const p = def.preguntas[slide - 1];
+  if (revelado.has(p.id)) revelado.delete(p.id); else revelado.add(p.id);
+  actualizar(false);
+}
+
+function alternarCorrecta() {
+  if (slide < 1 || slide > n()) return;
+  const p = def.preguntas[slide - 1];
+  if (!esQuiz || !evaluable(p)) return;
+  if (conCorrecta.has(p.id)) conCorrecta.delete(p.id); else { conCorrecta.add(p.id); confeti({ cantidad: 80, duracion: 1800 }); }
+  actualizar(true);
+}
+
+function pantallaCompleta() {
+  if (document.fullscreenElement) document.exitFullscreen?.();
+  else document.documentElement.requestFullscreen?.().catch(() => toast('El navegador no permitió la pantalla completa'));
+}
+
+async function borrarTodo() {
+  const r = prompt(`Se van a borrar las ${filas.length} respuestas de «${def.titulo}». No se puede deshacer.\n\nEscribí BORRAR para confirmar:`);
+  if (r?.trim().toUpperCase() !== 'BORRAR') return;
+  try {
+    const cuantas = await api.borrarRespuestas(clave, codigo);
+    filas = []; ultimoId = 0; vistos.clear(); ocultas.clear(); almacen.guardar(K_OCULTAS, []);
+    irA(slide, false);
+    toast(`Listo: se borraron ${plural(cuantas, 'respuesta', 'respuestas')}`);
+  } catch {
+    toast('No se pudieron borrar. Probá de nuevo.');
+  }
+}
+
+app.addEventListener('submit', (e) => {
+  if (e.target.id !== 'form-clave') return;
+  e.preventDefault();
+  clave = document.getElementById('clave').value.trim();
+  if (clave) cargar();
+});
+
+app.addEventListener('click', async (e) => {
+  const ir = e.target.closest('[data-ir]');
+  if (ir) return irA(Number(ir.dataset.ir));
+  const oc = e.target.closest('[data-ocultar]');
+  if (oc) {
+    ocultas.add(oc.dataset.ocultar);
+    almacen.guardar(K_OCULTAS, [...ocultas]);
+    return actualizar(false);
+  }
+  const b = e.target.closest('[data-accion]');
+  if (!b) return;
+  b.closest('details')?.removeAttribute('open');
+  const a = b.dataset.accion;
+  if (a === 'recargar') location.reload();
+  else if (a === 'anterior') irA(slide - 1);
+  else if (a === 'siguiente') irA(slide + 1);
+  else if (a === 'revelar') alternarRevelar();
+  else if (a === 'correcta') alternarCorrecta();
+  else if (a === 'restaurar') {
+    const p = def.preguntas[slide - 1];
+    [...ocultas].filter((x) => x.startsWith(p.id + ':') || x.startsWith(p.id + '#')).forEach((x) => ocultas.delete(x));
+    almacen.guardar(K_OCULTAS, [...ocultas]);
+    actualizar(false);
+  }
+  else if (a === 'pantalla-completa') pantallaCompleta();
+  else if (a === 'copiar') toast(await copiar(urlQuiz) ? 'Link copiado' : urlQuiz);
+  else if (a === 'csv') descargar(`${codigo}-respuestas.csv`, aCsv(def, filas));
+  else if (a === 'borrar') borrarTodo();
+});
+
+document.addEventListener('click', (e) => {
+  const abierto = document.querySelector('details.menu[open]');
+  if (abierto && !abierto.contains(e.target)) abierto.removeAttribute('open');
+});
+
+document.addEventListener('keydown', (e) => {
+  if (!def || !document.getElementById('pres')) return;
+  const t = e.target instanceof Element ? e.target : document.body;
+  if (t.closest('input, textarea, select') || e.metaKey || e.ctrlKey || e.altKey) return;
+  const enBoton = t.closest('button, summary, a');
+  const k = e.key;
+  if (k === 'ArrowRight' || k === 'PageDown' || (k === ' ' && !enBoton)) { e.preventDefault(); irA(slide + 1); }
+  else if (k === 'ArrowLeft' || k === 'PageUp') { e.preventDefault(); irA(slide - 1); }
+  else if (k === 'Home' || k === 'q' || k === 'Q') irA(0);
+  else if (k === 'End') irA(ultimaSlide());
+  else if (k === 'f' || k === 'F') pantallaCompleta();
+  else if (k === 'r' || k === 'R') alternarRevelar();
+  else if (k === 'c' || k === 'C') alternarCorrecta();
+  else if (/^[1-9]$/.test(k)) irA(Number(k));
+});

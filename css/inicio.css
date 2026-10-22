@@ -1,0 +1,27 @@
+/* ── Portada ── */
+.entrada { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: calc(24px + env(safe-area-inset-top)) 20px 32px; }
+.entrada-caja { display: grid; justify-items: center; gap: 16px; width: 100%; max-width: 440px; text-align: center; animation: entrar 0.5s var(--ease); }
+.entrada .logo-ciudad { height: 48px; margin-bottom: 8px; }
+.entrada-titulo { font-size: clamp(2.25rem, 1.6rem + 3vw, 3.25rem); font-weight: 900; line-height: 1; letter-spacing: -0.045em; }
+.entrada-titulo span { color: var(--amarillo); }
+.entrada-texto { font-size: 1.0625rem; color: rgba(255, 255, 255, 0.9); }
+.entrada-form { display: grid; gap: 12px; width: 100%; margin-top: 8px; }
+.entrada-campo {
+  width: 100%;
+  min-height: 64px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 18px;
+  background: #FFFFFF;
+  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.25);
+  color: var(--tinta);
+  font-size: 1.5rem;
+  font-weight: 850;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+.entrada-campo::placeholder { color: #94A3B8; font-weight: 700; }
+.entrada-campo:focus { outline: none; box-shadow: 0 5px 0 rgba(0, 0, 0, 0.25), 0 0 0 4px var(--amarillo); }
+.entrada-form .boton { width: 100%; }
+.entrada-panel { margin-top: 16px; color: rgba(255, 255, 255, 0.75); font-size: 0.9375rem; font-weight: 650; text-decoration: none; }
+.entrada-panel:hover { color: #FFFFFF; text-decoration: underline; }

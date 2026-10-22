@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#062B6B">
+  <meta name="description" content="Quizzes y encuestas en vivo de la Municipalidad de San Miguel de Tucumán.">
+  <title>Participá · San Miguel de Tucumán</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="/img/favicon-96.png">
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/inicio.css">
+  <script type="module" src="/js/inicio.js"></script>
+</head>
+<body>
+  <main class="entrada marca">
+    <div class="entrada-caja">
+      <img class="logo-ciudad" src="/img/logo-smt-blanco.png" width="507" height="206" alt="Ciudad de San Miguel de Tucumán">
+      <p class="chip-marca">Quizzes en vivo</p>
+      <h1 class="entrada-titulo">¡Sumate y <span>participá</span>!</h1>
+      <p class="entrada-texto">Escaneá el QR de la pantalla o escribí el código que ves arriba del QR.</p>
+      <form class="entrada-form" id="form">
+        <label class="sr-only" for="codigo">Código</label>
+        <input id="codigo" class="entrada-campo" maxlength="40" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Código" required>
+        <button class="boton boton--amarillo boton--grande">Entrar</button>
+      </form>
+      <a class="entrada-panel" href="/panel">Soy del equipo: ir al panel →</a>
+    </div>
+  </main>
+</body>
+</html>
