@@ -4,7 +4,7 @@
 // la botonera del celular (/control/<codigo>). Lo que se ve acá se guarda en
 // la base (en_vivo): en modo guiado, los celulares muestran la pregunta activa.
 import { api, MODO_LOCAL, clave as claveEquipo } from './api.js';
-import { OTRO, TIPOS, ESCALA, aplicarTema, ficha, forma, evaluable, agregar, aCsv, emojiDe, aliasSeguro } from './juego.js';
+import { OTRO, TIPOS, ESCALA, aplicarTema, ficha, forma, evaluable, agregar, aCsv, emojiDe, aliasSeguro, esInapropiado } from './juego.js';
 import { icono } from './iconos.js';
 import { qrHtml } from './qr.js';
 import { esc, almacen, toast, descargar, copiar, plural, confeti } from './util.js';
@@ -139,52 +139,71 @@ function pedirClave(error = '') {
   document.getElementById('clave').focus();
 }
 
-/* ── Esqueleto ── */
+/* ── Esqueleto ──
+   Todo se maneja desde esta pantalla: a la izquierda, siempre a la vista, el
+   QR, cuántos entraron y los dos botones (Siguiente / Anterior); a la
+   derecha, la pregunta activa con sus resultados en vivo. */
 function esqueleto() {
   app.innerHTML = `
     <div class="pres" id="pres">
-      <header class="pres-top">
-        <img class="pres-isologo" src="/img/isologo.png" alt="" width="44" height="44">
-        <div class="pres-encabezado">
-          <p class="pres-titulo" id="pres-titulo"></p>
-          <p class="pres-paso" id="pres-paso"></p>
+      <aside class="lado marca">
+        <img class="logo-ciudad lado-logo" src="/img/logo-smt-blanco.png" width="507" height="206" alt="Ciudad de San Miguel de Tucumán">
+        <p class="lado-llamado">Escaneá y participá</p>
+        <div class="lado-qr">${qrHtml(urlQuiz)}</div>
+        <p class="lado-url">${esc(urlVisible)}</p>
+        ${vivoHtml('vivo--lado')}
+        <div class="lado-control">
+          <p class="lado-paso" id="pres-paso"></p>
+          <div class="lado-progreso"><span id="progreso"></span></div>
+          <div class="lado-nav">
+            <button class="lado-ant" data-accion="anterior" aria-label="Volver a la anterior" title="Anterior (←)">${icono('chevron-izq')}</button>
+            <button class="lado-sig" data-accion="siguiente" id="btn-sig" title="Siguiente (→ o espacio)"><span>Empezar</span>${icono('chevron-der')}</button>
+          </div>
         </div>
-        ${vivoHtml()}
-        <button class="pres-qr-mini" data-ir="0" aria-label="Mostrar el código QR grande">
-          ${qrHtml(urlQuiz)}<span class="pres-qr-url"><small>Sumate en</small>${esc(urlVisible)}</span>
-        </button>
-      </header>
+      </aside>
       <main class="pres-main" id="slide"></main>
-      <nav class="pres-nav" id="nav" aria-label="Diapositivas"></nav>
+      <div class="herramientas" id="herramientas"></div>
     </div>`;
   renderNav();
 }
 
 function vivoHtml(extra = '') {
   return `<p class="vivo ${extra}" data-estado="${conexion}"><span class="vivo-punto"></span><b data-vivo-n>${filas.length}</b>
-    <span data-vivo-txt>${filas.length === 1 ? (esQuiz ? 'jugador' : 'respuesta') : (esQuiz ? 'jugadores' : 'respuestas')}</span><span class="vivo-error">· reconectando</span></p>`;
+    <span data-vivo-txt>${textoVivo(filas.length)}</span><span class="vivo-error">· reconectando</span></p>`;
 }
+const textoVivo = (total) => (esQuiz ? (total === 1 ? 'jugador' : 'jugadores') : (total === 1 ? 'persona participando' : 'personas participando'));
 
+// Herramientas chicas arriba a la derecha (no hacen falta para presentar).
 function renderNav() {
-  const puntos = [`<li><button class="nav-punto nav-punto--qr" data-ir="0" aria-label="Inicio con el código QR">${icono('qr')}</button></li>`]
-    .concat(def.preguntas.map((p, k) => `<li><button class="nav-punto" data-ir="${k + 1}" title="${esc(p.texto)}">${k + 1}</button></li>`));
-  puntos.push(`<li><button class="nav-punto nav-punto--podio" data-ir="${n() + 1}" aria-label="${esQuiz ? 'Podio' : 'Cierre'}">${icono(esQuiz ? 'trofeo' : 'check')}</button></li>`);
-  document.getElementById('nav').innerHTML = `
-    <button class="nav-flecha" data-accion="anterior" aria-label="Anterior">${icono('chevron-izq')}</button>
-    <ol class="nav-puntos">${puntos.join('')}</ol>
-    <button class="nav-flecha" data-accion="siguiente" aria-label="Siguiente">${icono('chevron-der')}</button>
-    <span class="nav-espacio"></span>
-    <button class="nav-boton" data-accion="pantalla-completa">${icono('maximizar')}<span>Pantalla completa</span></button>
+  document.getElementById('herramientas').innerHTML = `
+    <button class="nav-boton" data-accion="pantalla-completa" aria-label="Pantalla completa" title="Pantalla completa (F)">${icono('maximizar')}</button>
     <details class="menu">
       <summary class="nav-boton" aria-label="Más opciones">${icono('mas')}</summary>
       <div class="menu-lista">
-        <button data-accion="botonera">${icono('qr')} Botonera en el celular <kbd>B</kbd></button>
-        <button data-accion="copiar">${icono('enlace')} Copiar link para participar</button>
+        <p class="menu-titulo">Ir a</p>
+        <button data-ir="0">${icono('qr')} Inicio</button>
+        ${def.preguntas.map((p, k) => `<button data-ir="${k + 1}"><b>${k + 1}.</b> <span class="menu-corto">${esc(p.texto)}</span></button>`).join('')}
+        <button data-ir="${n() + 1}">${icono(esQuiz ? 'trofeo' : 'check')} ${esQuiz ? 'Podio' : 'Cierre'}</button>
+        <hr>
         <button data-accion="csv">${icono('descargar')} Descargar respuestas (CSV)</button>
+        <button data-accion="copiar">${icono('enlace')} Copiar link para participar</button>
+        <button data-accion="botonera">${icono('qr')} Botonera en el celular (opcional)</button>
         <a href="/panel">${icono('lapiz')} Ir al panel</a>
         <button data-accion="borrar" class="menu-peligro">${icono('papelera')} Borrar todas las respuestas</button>
       </div>
     </details>`;
+}
+
+function actualizarLado() {
+  document.getElementById('pres-paso').textContent = slide === 0 ? 'Esperando que empiece'
+    : slide <= n() ? `Pregunta ${slide} de ${n()}` : esQuiz ? 'Podio' : 'Terminó';
+  document.getElementById('progreso').style.width = `${(slide / (n() + 1)) * 100}%`;
+  const sig = document.getElementById('btn-sig');
+  sig.querySelector('span').textContent = slide === 0 ? 'Empezar' : slide < n() ? 'Siguiente'
+    : slide === n() ? (esQuiz ? 'Ver el podio' : 'Terminar') : 'Fin';
+  sig.disabled = slide === ultimaSlide();
+  sig.classList.toggle('lado-sig--empezar', slide === 0);
+  document.querySelector('.lado [data-accion="anterior"]').disabled = slide === 0;
 }
 
 /* ── Navegación ── */
@@ -192,24 +211,14 @@ function irA(k, animar = true, escribir = true) {
   if (!def) return;
   slide = Math.max(0, Math.min(ultimaSlide(), k));
   almacen.guardar(K_SLIDE, slide, true);
-  const pres = document.getElementById('pres');
   const inicio = slide === 0;
-  pres.classList.toggle('pres--inicio', inicio);
-  pres.classList.toggle('marca', inicio);
   const main = document.getElementById('slide');
   Object.keys(firmas).forEach((x) => delete firmas[x]);
   if (inicio) main.innerHTML = vistaInicio();
   else if (slide <= n()) main.innerHTML = vistaPregunta(def.preguntas[slide - 1], slide);
   else main.innerHTML = esQuiz ? vistaPodio() : vistaFin();
   if (!animar) main.querySelector('.slide, .inicio, .podio-slide')?.classList.add('sin-animar');
-  document.getElementById('pres-titulo').textContent = def.titulo;
-  document.getElementById('pres-paso').textContent = inicio ? '' : slide <= n() ? `Pregunta ${slide} de ${n()}` : esQuiz ? 'Podio' : 'Cierre';
-  document.querySelectorAll('.nav-puntos [data-ir]').forEach((b) => {
-    if (Number(b.dataset.ir) === slide) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current');
-  });
-  document.querySelector('[data-accion="anterior"]').disabled = slide === 0;
-  document.querySelector('[data-accion="siguiente"]').disabled = slide === ultimaSlide();
-  document.querySelector('.nav-puntos [aria-current]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  actualizarLado();
   actualizar(animar);
   if (slide === n() + 1 && filas.length && animar && (esQuiz || def.celebrar)) setTimeout(() => confeti({ cantidad: 200 }), 700);
   if (escribir) publicar();
@@ -253,23 +262,17 @@ function aplicarEnVivo(ev) {
 /* ── Vistas ── */
 function vistaInicio() {
   return `<section class="inicio">
-    <div class="inicio-texto">
-      <img class="logo-ciudad" src="/img/logo-smt-blanco.png" width="507" height="206" alt="Ciudad de San Miguel de Tucumán">
-      <p class="chip-marca">${esc(def.etiqueta || (esQuiz ? 'Quiz' : 'Encuesta'))}</p>
-      <h1 class="inicio-titulo">${esc(def.titulo)}</h1>
-      ${def.subtitulo ? `<p class="inicio-subtitulo">${esc(def.subtitulo)}</p>` : ''}
-      <ol class="inicio-pasos">
-        <li><b>1</b>Abrí la cámara del celular</li>
-        <li><b>2</b>Apuntá al código QR</li>
-        <li><b>3</b>${esQuiz ? '¡Elegí tu apodo y a jugar!' : 'Respondé: es anónimo'}</li>
-      </ol>
-    </div>
-    <div class="inicio-qr">
-      <div class="inicio-qr-caja">${qrHtml(urlQuiz)}</div>
-      <p class="inicio-url">${esc(urlVisible)}</p>
-      ${vivoHtml('vivo--grande')}
-    </div>
+    <p class="inicio-etiqueta">${esc(def.etiqueta || (esQuiz ? 'Quiz' : 'Encuesta'))}</p>
+    <h1 class="inicio-titulo">${esc(def.titulo)}</h1>
+    ${def.subtitulo ? `<p class="inicio-subtitulo">${esc(def.subtitulo)}</p>` : ''}
+    <ol class="inicio-pasos">
+      <li><b>1</b>Abrí la cámara del celular</li>
+      <li><b>2</b>Escaneá el código de la izquierda</li>
+      <li><b>3</b>${esQuiz ? '¡Elegí tu apodo y a jugar!' : 'Respondé: es anónimo'}</li>
+    </ol>
+    <p class="inicio-cuenta"><b data-vivo-n>${filas.length}</b> <span data-vivo-txt>${textoVivo(filas.length)}</span></p>
     ${esQuiz ? '<ul class="lobby" id="lobby" aria-label="Jugadores"></ul>' : ''}
+    <p class="inicio-ayuda">Cuando estén adentro, tocá <b>Empezar</b>. El código queda siempre a la vista: los que llegan tarde también entran.</p>
   </section>`;
 }
 
@@ -330,8 +333,7 @@ function actualizarVivo() {
       el.classList.remove('hud--pop'); void el.offsetWidth; el.classList.add('hud--pop');
     }
   });
-  const txt = total === 1 ? (esQuiz ? 'jugador' : 'respuesta') : (esQuiz ? 'jugadores' : 'respuestas');
-  document.querySelectorAll('[data-vivo-txt]').forEach((el) => { el.textContent = txt; });
+  document.querySelectorAll('[data-vivo-txt]').forEach((el) => { el.textContent = textoVivo(total); });
   document.querySelectorAll('.vivo').forEach((el) => { el.dataset.estado = conexion; });
 }
 
@@ -457,8 +459,8 @@ function cortina(p, cantidad, que) {
   return `<div class="cortina">
     ${icono('ojo-no', 'cortina-icono')}
     <p class="cortina-titulo">${cantidad ? plural(cantidad, que[0], que[1]) : 'Todavía no hay respuestas'}</p>
-    <p class="cortina-texto">${cantidad ? 'Se muestran cuando las revelás. Si querés, miralas antes en tu compu.' : 'Van a ir llegando acá.'}</p>
-    ${cantidad ? `<button class="boton boton--primario" data-accion="revelar">${icono('ojo')} Mostrar <kbd>R</kbd></button>` : ''}
+    <p class="cortina-texto">${cantidad ? 'Lo que escribieron se muestra cuando tocás el botón (por si hay algo que no conviene proyectar).' : 'Van a ir llegando acá.'}</p>
+    ${cantidad ? `<button class="boton boton--primario boton--grande-pres" data-accion="revelar">${icono('ojo')} Mostrar lo que escribieron</button>` : ''}
   </div>`;
 }
 
@@ -471,13 +473,20 @@ function accionesRevelar(p, nOcultas) {
     <button class="boton boton--chico" data-accion="revelar">${icono('ojo-no')} Ocultar todo <kbd>R</kbd></button>` : '';
 }
 
+function accionesOcultas(p, nOcultas) {
+  const acciones = document.getElementById('acciones');
+  if (!cambio('acciones', `ocultas|${nOcultas}`)) return;
+  acciones.innerHTML = nOcultas ? `<button class="boton boton--chico boton--fantasma" data-accion="restaurar">${plural(nOcultas, 'oculta', 'ocultas')} · restaurar</button>` : '';
+}
+
 function actualizarMuro(p, a) {
   const cuerpo = document.getElementById('cuerpo');
-  const visibles = a.textos.filter((x) => !ocultas.has(`${p.id}:${x.id}`));
-  accionesRevelar(p, a.textos.length - visibles.length);
+  const limpios = a.textos.filter((x) => !esInapropiado(x.texto));
+  const visibles = limpios.filter((x) => !ocultas.has(`${p.id}:${x.id}`));
+  accionesRevelar(p, limpios.length - visibles.length);
   const abierto = revelado.has(p.id);
   if (!cambio('cuerpo', `${abierto}|${a.textos.length}|${visibles.map((x) => x.id).join(',')}`)) return;
-  if (!abierto) { cuerpo.innerHTML = cortina(p, a.textos.length, ['respuesta abierta', 'respuestas abiertas']); return; }
+  if (!abierto) { cuerpo.innerHTML = cortina(p, limpios.length, ['respuesta abierta', 'respuestas abiertas']); return; }
   const muestra = visibles.slice(-MAX_MURO).reverse();
   cuerpo.innerHTML = `<div class="muro">${muestra.map((x) => `
     <article class="nota${vistos.has(x.id) ? '' : ' nota--nueva'}">
@@ -491,12 +500,12 @@ function actualizarMuro(p, a) {
 const COLORES_NUBE = ['#0166FF', '#062B6B', '#047857', '#D92D20', '#6D28D9', '#0E7490', '#0077C2'];
 function actualizarNube(p, a) {
   const cuerpo = document.getElementById('cuerpo');
-  const visibles = a.palabras.filter((w) => !ocultas.has(`${p.id}#${w.k}`));
-  accionesRevelar(p, a.palabras.length - visibles.length);
-  const abierto = revelado.has(p.id);
+  const limpias = a.palabras.filter((w) => !esInapropiado(w.texto));
+  const visibles = limpias.filter((w) => !ocultas.has(`${p.id}#${w.k}`));
+  accionesOcultas(p, limpias.length - visibles.length);
   const top = visibles.slice(0, MAX_NUBE);
-  if (!cambio('cuerpo', `${abierto}|${a.palabras.length}|${top.map((w) => w.k + w.n).join(',')}`)) return;
-  if (!abierto) { cuerpo.innerHTML = cortina(p, a.palabras.length, ['palabra distinta', 'palabras distintas']); return; }
+  if (!cambio('cuerpo', `${top.map((w) => w.k + w.n).join(',')}`)) return;
+  if (!top.length) { cuerpo.innerHTML = '<div class="cortina"><p class="cortina-titulo">Todavía no hay palabras</p><p class="cortina-texto">Van a ir apareciendo acá, más grandes las que más se repiten.</p></div>'; return; }
   const max = top[0]?.n || 1;
   // La más repetida al centro y el resto alternando a los costados.
   const orden = [];
@@ -623,6 +632,7 @@ app.addEventListener('click', async (e) => {
   else if (a === 'csv') descargar(`${codigo}-respuestas.csv`, aCsv(def, filas));
   else if (a === 'borrar') borrarTodo();
   else if (a === 'botonera') mostrarBotonera();
+  if (a === 'anterior' || a === 'siguiente') b.blur();
 });
 
 document.addEventListener('click', (e) => {

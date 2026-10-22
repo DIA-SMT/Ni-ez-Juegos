@@ -130,13 +130,15 @@ export function emojiDe(alias = '') {
 const PROHIBIDAS = ['pija', 'verga', 'mierda', 'pelotud', 'sorete', 'garch', 'trolo', 'mogolic', 'hdp', 'concha', 'nazi', 'vagina'];
 // Solo al comienzo de una palabra ("puta" sí, "computadora" no):
 const PROHIBIDAS_INICIO = ['puto', 'puta', 'choto', 'chota', 'culo', 'forro', 'coger', 'cogi', 'teta', 'orto', 'cagar', 'mamad'];
+export function esInapropiado(texto) {
+  const limpio = normalizarPalabra(texto).replace(/[^a-z ]/g, '');
+  return PROHIBIDAS.some((w) => limpio.replace(/ /g, '').includes(w))
+    || limpio.split(' ').some((p) => PROHIBIDAS_INICIO.some((w) => p.startsWith(w)));
+}
 export function aliasSeguro(alias) {
   const a = String(alias || '').trim();
   if (!a) return 'Anónimo';
-  const limpio = normalizarPalabra(a).replace(/[^a-z ]/g, '');
-  const malo = PROHIBIDAS.some((w) => limpio.replace(/ /g, '').includes(w))
-    || limpio.split(' ').some((p) => PROHIBIDAS_INICIO.some((w) => p.startsWith(w)));
-  if (!malo) return a;
+  if (!esInapropiado(a)) return a;
   let h = 0;
   for (const c of a) h = (h * 31 + c.codePointAt(0)) >>> 0;
   return `${ANIMALES[h % ANIMALES.length][0]} ${ADJETIVOS[(h >>> 8) % ADJETIVOS.length]}`;

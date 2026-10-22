@@ -8,8 +8,8 @@ los resultados en vivo. Pensado para ~300 chicos a la vez.
 |---|---|---|
 | `/` | Público | Entrar escribiendo el código |
 | `/<codigo>` | Público (QR) | Responder, una pregunta por pantalla |
-| `/presentar/<codigo>` | Equipo (proyector) | QR gigante, sala de espera, resultados en vivo, podio |
-| `/control/<codigo>` | Equipo (celular) | Botonera: pasar preguntas, mostrar la correcta y las respuestas |
+| `/presentar/<codigo>` | Equipo (proyector) | **Todo desde acá**: QR siempre a la vista, botón Empezar/Siguiente y resultados en vivo |
+| `/control/<codigo>` | Equipo (celular, opcional) | Botonera: lo mismo que los botones de la pantalla, desde el celular |
 | `/panel` | Equipo | Crear, editar, duplicar, abrir/cerrar, exportar CSV |
 
 ## Dos modos
