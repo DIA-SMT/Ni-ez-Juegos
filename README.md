@@ -39,7 +39,9 @@ Atajos del presentador: `←` `→` (o el control de diapositivas), `1`–`9`, `
    encuestas de Niñez (`consumos` y `silencio`).
 2. **Conexión**: en `js/config.js` poner la URL del proyecto y la clave *publishable*
    (o *anon*). Son públicas por diseño: solo permiten leer un quiz y mandar respuestas.
-3. **Deploy**: es un sitio estático, sin build. Vercel lo toma tal cual (rutas en `vercel.json`).
+3. **Deploy**: es un sitio estático, sin build (rutas en `vercel.json`). Está publicado en
+   https://ninez-juegos.vercel.app (proyecto `ninez-juegos` de la cuenta direccionia en Vercel).
+   Para publicar cambios: `npx vercel deploy --prod` desde esta carpeta.
 
 La **clave del equipo** (para `/panel` y `/presentar`) no está en el repo: en la base
 solo se guarda su huella. Para cambiarla, en el SQL Editor:

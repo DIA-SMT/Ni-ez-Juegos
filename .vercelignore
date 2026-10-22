@@ -3,3 +3,6 @@ dev.mjs
 supabase
 .claude
 *.local.txt
+.env*
+.vercel
+.git
