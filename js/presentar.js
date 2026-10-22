@@ -1,6 +1,8 @@
 // Pantalla para proyectar: QR gigante con la sala de espera, resultados en
 // vivo pregunta por pregunta y el podio del quiz. Se maneja con flechas,
-// con el control de diapositivas (PageUp/PageDown) o con los botones.
+// con el control de diapositivas (PageUp/PageDown), con los botones o desde
+// la botonera del celular (/control/<codigo>). Lo que se ve acá se guarda en
+// la base (en_vivo): en modo guiado, los celulares muestran la pregunta activa.
 import { api, MODO_LOCAL, clave as claveEquipo } from './api.js';
 import { OTRO, TIPOS, ESCALA, aplicarTema, ficha, forma, evaluable, agregar, aCsv, emojiDe, aliasSeguro } from './juego.js';
 import { icono } from './iconos.js';
@@ -11,6 +13,7 @@ const app = document.getElementById('app');
 const codigo = (new URLSearchParams(location.search).get('c') || location.pathname.split('/').filter(Boolean)[1] || '').toLowerCase();
 const urlQuiz = `${location.origin}/${codigo}`;
 const urlVisible = `${location.host}/${codigo}`;
+const urlControl = `${location.origin}/control/${codigo}`;
 const K_SLIDE = `pres:${codigo}:slide`;
 const K_OCULTAS = `pres:${codigo}:ocultas`;
 const MAX_MURO = 80;
@@ -23,8 +26,11 @@ let def = null;
 let esQuiz = false;
 let firmaDef = '';
 let filas = [];
-let ultimoId = 0;
+let ultimo = 0;          // mayor "c" (cambio) recibido: lo siguiente se pide desde acá
 let slide = 0;
+let guiado = false;
+let localRev = 0;        // versión del estado en vivo que ya está en pantalla
+let pendientes = 0;      // escrituras en vuelo: mientras tanto no se pisa lo local
 let conexion = 'ok';
 let timer = null;
 const revelado = new Set();      // preguntas con respuestas abiertas visibles
@@ -34,7 +40,7 @@ const vistos = new Set();
 const firmas = {};
 
 const n = () => def.preguntas.length;
-const ultimaSlide = () => n() + (esQuiz ? 1 : 0);
+const ultimaSlide = () => n() + 1;   // la última: podio (quiz) o cierre (encuesta)
 
 /* ── Arranque ── */
 if (MODO_LOCAL) document.body.insertAdjacentHTML('beforeend', '<p class="aviso-local">MODO LOCAL</p>');
@@ -49,7 +55,14 @@ async function cargar() {
     if (!MODO_LOCAL) claveEquipo.guardar(clave);
     filas.forEach((f) => vistos.add(f.id));
     esqueleto();
-    irA(Number(almacen.leer(K_SLIDE, true)) || 0);
+    const ev = r.en_vivo || {};
+    if (ev.rev) {
+      // Ya había una presentación en curso (se recargó la página): seguirla.
+      localRev = ev.rev;
+      (ev.ver || []).forEach((x) => revelado.add(x));
+      (ev.correctas || []).forEach((x) => conCorrecta.add(x));
+      irA(Number(ev.slide) || 0, true, false);
+    } else irA(Number(almacen.leer(K_SLIDE, true)) || 0);
     programar();
   } catch (e) {
     if (e.codigo === 'clave') { claveEquipo.olvidar(); pedirClave(clave ? 'La clave no es correcta.' : ''); }
@@ -66,31 +79,37 @@ function recibir(r, completo) {
   def = quiz.def;
   esQuiz = def.modo === 'quiz';
   if (cambioDef) { aplicarTema(def.tema); document.title = `${def.titulo} · En vivo`; }
+  guiado = def.ritmo === 'guiado';
   const llegadas = (r.filas || []).filter((x) => x && Number.isFinite(x.id) && x.d && typeof x.d === 'object');
-  filas = completo ? llegadas : filas.concat(llegadas.filter((x) => x.id > ultimoId));
-  ultimoId = filas.reduce((m, x) => Math.max(m, x.id), 0);
-  return { cambioDef, hay: llegadas.length > 0 };
+  if (completo) filas = llegadas;
+  else if (llegadas.length) {
+    // En modo guiado una misma fila cambia con cada respuesta: se reemplaza.
+    const porId = new Map(filas.map((x) => [x.id, x]));
+    llegadas.forEach((x) => porId.set(x.id, x));
+    filas = [...porId.values()].sort((a, b) => a.id - b.id);
+  }
+  ultimo = filas.reduce((m, x) => Math.max(m, Number(x.c) || 0), 0);
+  return { cambioDef, hay: llegadas.length > 0, completo };
 }
 
 function programar() {
   clearTimeout(timer);
-  timer = setTimeout(ciclo, document.hidden ? 15000 : 3000);
+  timer = setTimeout(ciclo, document.hidden ? 15000 : 1500);
 }
 
 async function ciclo() {
   try {
-    let r = await api.resultados(clave, codigo, ultimoId);
-    let completo = false;
-    const nuevas = (r.filas || []).filter((x) => x.id > ultimoId).length;
-    if (typeof r.total === 'number' && r.total !== filas.length + nuevas) {
+    let r = await api.resultados(clave, codigo, ultimo);
+    let res = recibir(r, false);
+    if (typeof r.total === 'number' && r.total !== filas.length) {
       r = await api.resultados(clave, codigo, 0);   // se borraron respuestas: todo de nuevo
-      completo = true;
+      res = recibir(r, true);
     }
-    const { cambioDef, hay } = recibir(r, completo);
     conexion = 'ok';
-    if (cambioDef) { renderNav(); irA(Math.min(slide, ultimaSlide()), false); }
-    else if (hay || completo) actualizar(false);
-    else actualizarVivo();
+    const movido = aplicarEnVivo(r.en_vivo);
+    if (res.cambioDef) { renderNav(); irA(Math.min(slide, ultimaSlide()), false, false); }
+    else if (!movido && (res.hay || res.completo)) actualizar(false);
+    else if (!movido) actualizarVivo();
   } catch (e) {
     if (e.codigo === 'clave') { claveEquipo.olvidar(); clearTimeout(timer); return pedirClave('La clave dejó de ser válida.'); }
     conexion = 'error';
@@ -149,7 +168,7 @@ function vivoHtml(extra = '') {
 function renderNav() {
   const puntos = [`<li><button class="nav-punto nav-punto--qr" data-ir="0" aria-label="Inicio con el código QR">${icono('qr')}</button></li>`]
     .concat(def.preguntas.map((p, k) => `<li><button class="nav-punto" data-ir="${k + 1}" title="${esc(p.texto)}">${k + 1}</button></li>`));
-  if (esQuiz) puntos.push(`<li><button class="nav-punto nav-punto--podio" data-ir="${n() + 1}" aria-label="Podio">${icono('trofeo')}</button></li>`);
+  puntos.push(`<li><button class="nav-punto nav-punto--podio" data-ir="${n() + 1}" aria-label="${esQuiz ? 'Podio' : 'Cierre'}">${icono(esQuiz ? 'trofeo' : 'check')}</button></li>`);
   document.getElementById('nav').innerHTML = `
     <button class="nav-flecha" data-accion="anterior" aria-label="Anterior">${icono('chevron-izq')}</button>
     <ol class="nav-puntos">${puntos.join('')}</ol>
@@ -159,6 +178,7 @@ function renderNav() {
     <details class="menu">
       <summary class="nav-boton" aria-label="Más opciones">${icono('mas')}</summary>
       <div class="menu-lista">
+        <button data-accion="botonera">${icono('qr')} Botonera en el celular <kbd>B</kbd></button>
         <button data-accion="copiar">${icono('enlace')} Copiar link para participar</button>
         <button data-accion="csv">${icono('descargar')} Descargar respuestas (CSV)</button>
         <a href="/panel">${icono('lapiz')} Ir al panel</a>
@@ -168,7 +188,7 @@ function renderNav() {
 }
 
 /* ── Navegación ── */
-function irA(k, animar = true) {
+function irA(k, animar = true, escribir = true) {
   if (!def) return;
   slide = Math.max(0, Math.min(ultimaSlide(), k));
   almacen.guardar(K_SLIDE, slide, true);
@@ -180,10 +200,10 @@ function irA(k, animar = true) {
   Object.keys(firmas).forEach((x) => delete firmas[x]);
   if (inicio) main.innerHTML = vistaInicio();
   else if (slide <= n()) main.innerHTML = vistaPregunta(def.preguntas[slide - 1], slide);
-  else main.innerHTML = vistaPodio();
+  else main.innerHTML = esQuiz ? vistaPodio() : vistaFin();
   if (!animar) main.querySelector('.slide, .inicio, .podio-slide')?.classList.add('sin-animar');
   document.getElementById('pres-titulo').textContent = def.titulo;
-  document.getElementById('pres-paso').textContent = inicio ? '' : slide <= n() ? `Pregunta ${slide} de ${n()}` : 'Podio';
+  document.getElementById('pres-paso').textContent = inicio ? '' : slide <= n() ? `Pregunta ${slide} de ${n()}` : esQuiz ? 'Podio' : 'Cierre';
   document.querySelectorAll('.nav-puntos [data-ir]').forEach((b) => {
     if (Number(b.dataset.ir) === slide) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current');
   });
@@ -191,7 +211,43 @@ function irA(k, animar = true) {
   document.querySelector('[data-accion="siguiente"]').disabled = slide === ultimaSlide();
   document.querySelector('.nav-puntos [aria-current]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
   actualizar(animar);
-  if (slide === n() + 1 && esQuiz && filas.length && animar) setTimeout(() => confeti({ cantidad: 200 }), 700);
+  if (slide === n() + 1 && filas.length && animar && (esQuiz || def.celebrar)) setTimeout(() => confeti({ cantidad: 200 }), 700);
+  if (escribir) publicar();
+}
+
+/* ── Estado en vivo (compartido con la botonera y, en modo guiado, con los celulares) ── */
+function estadoActual() {
+  const p = slide >= 1 && slide <= n() ? def.preguntas[slide - 1] : null;
+  return { slide, activa: p?.id || null, cerrada: !!p && conCorrecta.has(p.id), ver: [...revelado], correctas: [...conCorrecta], fin: slide === n() + 1 };
+}
+
+async function publicar() {
+  pendientes++;
+  try {
+    const ev = await api.enVivo(clave, codigo, estadoActual());
+    localRev = Math.max(localRev, Number(ev?.rev) || 0);
+  } catch (e) {
+    if (e.codigo === 'clave') { claveEquipo.olvidar(); pedirClave('La clave dejó de ser válida.'); }
+    else toast(guiado ? 'No llegó a los celulares: revisá la conexión' : 'No se pudo sincronizar con la botonera');
+  } finally {
+    pendientes--;
+  }
+}
+
+// Lo que mandó la botonera (u otra pantalla): se aplica si es más nuevo.
+function aplicarEnVivo(ev) {
+  if (!ev || !ev.rev || ev.rev <= localRev || pendientes > 0) return false;
+  localRev = ev.rev;
+  const p = slide >= 1 && slide <= n() ? def.preguntas[slide - 1] : null;
+  const antes = p && conCorrecta.has(p.id);
+  revelado.clear(); (ev.ver || []).forEach((x) => revelado.add(x));
+  conCorrecta.clear(); (ev.correctas || []).forEach((x) => conCorrecta.add(x));
+  const k = Number(ev.slide) || 0;
+  if (k !== slide) { irA(k, true, false); return true; }
+  Object.keys(firmas).forEach((x) => delete firmas[x]);
+  if (p && !antes && conCorrecta.has(p.id)) confeti({ cantidad: 80, duracion: 1800 });
+  actualizar(true);
+  return true;
 }
 
 /* ── Vistas ── */
@@ -234,6 +290,15 @@ function vistaPregunta(p, k) {
   </section>`;
 }
 
+function vistaFin() {
+  return `<section class="fin-slide">
+    <div class="fin-check">${icono('check')}</div>
+    <h1 class="fin-titulo">${esc(def.cierre?.titulo || '¡Gracias por participar!')}</h1>
+    ${def.cierre?.texto ? `<p class="fin-texto">${esc(def.cierre.texto)}</p>` : ''}
+    <p class="fin-n"><b data-vivo-n>${filas.length}</b> <span data-vivo-txt>respuestas</span></p>
+  </section>`;
+}
+
 function vistaPodio() {
   return `<section class="podio-slide">
     <h1 class="podio-titulo">${icono('trofeo')} Podio</h1>
@@ -246,7 +311,7 @@ function vistaPodio() {
 function actualizar(animar) {
   actualizarVivo();
   if (slide === 0) return actualizarLobby();
-  if (slide > n()) return actualizarPodio(animar);
+  if (slide > n()) return esQuiz ? actualizarPodio(animar) : undefined;
   const p = def.preguntas[slide - 1];
   const a = agregar(p, filas);
   document.getElementById('meta-n').textContent = a.total;
@@ -286,6 +351,9 @@ function actualizarBarras(p, a, animar) {
   const quizEval = esQuiz && evaluable(p);
   const correctas = p.tipo === 'unica' ? [p.correcta] : (p.correctas || []);
   const mostrarCorrecta = quizEval && conCorrecta.has(p.id);
+  // Quiz guiado: hasta mostrar la correcta solo se ve cuántos respondieron
+  // (como en Kahoot), así nadie se copia de las barras.
+  if (guiado && quizEval && !mostrarCorrecta) return esperandoRespuestas(p, a);
   if (cambio('barras', a.opciones.length + '|' + mostrarCorrecta)) {
     cuerpo.innerHTML = `<ol class="barras${esQuiz ? ' barras--quiz' : ''}">${a.opciones.map((o, k) => {
       const f = ficha(k);
@@ -320,6 +388,27 @@ function actualizarBarras(p, a, animar) {
           ${icono(mostrarCorrecta ? 'ojo-no' : 'ojo')} ${mostrarCorrecta ? 'Ocultar la correcta' : 'Mostrar la correcta'} <kbd>C</kbd></button>` : '';
   }
   if (p.otro) actualizarOtros(p, a.otros);
+}
+
+function esperandoRespuestas(p, a) {
+  const cuerpo = document.getElementById('cuerpo');
+  if (cambio('barras', 'espera')) {
+    cuerpo.innerHTML = `<div class="espera-resp">
+      <p class="espera-n"><b id="esp-n">0</b> <span id="esp-de"></span></p>
+      <div class="espera-pista"><div class="espera-relleno" id="esp-barra"></div></div>
+      <ul class="espera-fichas">${(p.opciones || []).map((o, k) => {
+        const f = ficha(k);
+        return `<li style="--f-fondo:${f.fondo};--f-texto:${f.texto}">${forma(k)}<span>${esc(o)}</span></li>`;
+      }).join('')}</ul>
+    </div>`;
+  }
+  document.getElementById('esp-n').textContent = a.total;
+  document.getElementById('esp-de').textContent = `de ${filas.length} ${a.total === 1 ? 'respondió' : 'respondieron'}`;
+  document.getElementById('esp-barra').style.width = `${filas.length ? (a.total / filas.length) * 100 : 0}%`;
+  const acciones = document.getElementById('acciones');
+  if (cambio('acciones', 'espera')) {
+    acciones.innerHTML = `<button class="boton boton--chico boton--primario" data-accion="correcta">${icono('ojo')} Mostrar la correcta <kbd>C</kbd></button>`;
+  }
 }
 
 function actualizarOtros(p, otros) {
@@ -467,6 +556,7 @@ function alternarRevelar() {
   const p = def.preguntas[slide - 1];
   if (revelado.has(p.id)) revelado.delete(p.id); else revelado.add(p.id);
   actualizar(false);
+  publicar();
 }
 
 function alternarCorrecta() {
@@ -474,7 +564,9 @@ function alternarCorrecta() {
   const p = def.preguntas[slide - 1];
   if (!esQuiz || !evaluable(p)) return;
   if (conCorrecta.has(p.id)) conCorrecta.delete(p.id); else { conCorrecta.add(p.id); confeti({ cantidad: 80, duracion: 1800 }); }
+  delete firmas.acciones;
   actualizar(true);
+  publicar();
 }
 
 function pantallaCompleta() {
@@ -487,7 +579,7 @@ async function borrarTodo() {
   if (r?.trim().toUpperCase() !== 'BORRAR') return;
   try {
     const cuantas = await api.borrarRespuestas(clave, codigo);
-    filas = []; ultimoId = 0; vistos.clear(); ocultas.clear(); almacen.guardar(K_OCULTAS, []);
+    filas = []; ultimo = 0; vistos.clear(); ocultas.clear(); almacen.guardar(K_OCULTAS, []);
     irA(slide, false);
     toast(`Listo: se borraron ${plural(cuantas, 'respuesta', 'respuestas')}`);
   } catch {
@@ -530,6 +622,7 @@ app.addEventListener('click', async (e) => {
   else if (a === 'copiar') toast(await copiar(urlQuiz) ? 'Link copiado' : urlQuiz);
   else if (a === 'csv') descargar(`${codigo}-respuestas.csv`, aCsv(def, filas));
   else if (a === 'borrar') borrarTodo();
+  else if (a === 'botonera') mostrarBotonera();
 });
 
 document.addEventListener('click', (e) => {
@@ -550,5 +643,27 @@ document.addEventListener('keydown', (e) => {
   else if (k === 'f' || k === 'F') pantallaCompleta();
   else if (k === 'r' || k === 'R') alternarRevelar();
   else if (k === 'c' || k === 'C') alternarCorrecta();
+  else if (k === 'b' || k === 'B') mostrarBotonera();
+  else if (k === 'Escape') document.getElementById('modal')?.remove();
   else if (/^[1-9]$/.test(k)) irA(Number(k));
+});
+
+// QR para abrir la botonera en el celular del presentador (pide la clave).
+function mostrarBotonera() {
+  document.getElementById('modal')?.remove();
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-t">
+    <div class="modal-caja">
+      <h2 id="modal-t">Botonera en tu celular</h2>
+      <p>Escaneá este código con <b>tu</b> celular para pasar las preguntas y mostrar resultados desde ahí. Pide la clave del equipo.</p>
+      <div class="modal-qr">${qrHtml(urlControl)}</div>
+      <p class="modal-url">${esc(urlControl.replace(/^https?:\/\//, ''))}</p>
+      <button class="boton boton--primario" data-accion="cerrar-modal">Listo</button>
+    </div>
+  </div>`);
+  document.querySelector('#modal [data-accion="cerrar-modal"]').focus();
+}
+document.addEventListener('click', (e) => {
+  const m = document.getElementById('modal');
+  if (!m) return;
+  if (e.target === m || e.target.closest('#modal [data-accion="cerrar-modal"]')) m.remove();
 });

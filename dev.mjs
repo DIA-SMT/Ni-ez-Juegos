@@ -16,12 +16,19 @@ function ruta(p) {
   if (p === '/') return '/index.html';
   if (p === '/panel' || p === '/panel/') return '/panel.html';
   if (/^\/presentar\/[a-z0-9-]+\/?$/i.test(p)) return '/presentar.html';
+  if (/^\/control\/[a-z0-9-]+\/?$/i.test(p)) return '/control.html';
   if (/^\/[a-z0-9-]+\/?$/i.test(p)) return '/responder.html';
   return p;
 }
 
 http.createServer(async (req, res) => {
   const { pathname } = new URL(req.url, 'http://localhost');
+  // MODO_LOCAL=1 node dev.mjs → sin Supabase: todo queda en el navegador.
+  if (process.env.MODO_LOCAL && pathname === '/js/config.js') {
+    res.writeHead(200, { 'Content-Type': TIPOS['.js'], 'Cache-Control': 'no-store' });
+    res.end("export const SUPABASE_URL = '';\nexport const SUPABASE_KEY = '';\n");
+    return;
+  }
   const archivo = normalize(join(RAIZ, decodeURIComponent(ruta(pathname))));
   if (!archivo.startsWith(normalize(RAIZ))) { res.writeHead(403).end(); return; }
   try {

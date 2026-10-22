@@ -19,7 +19,7 @@ const PLANTILLAS = {
   quiz: {
     emoji: '🎮', nombre: 'Quiz con puntaje', texto: 'Respuestas correctas, apodos, rachas y podio.',
     def: {
-      titulo: 'Quiz nuevo', etiqueta: 'Quiz', subtitulo: '', modo: 'quiz', tema: 'violeta', celebrar: true,
+      titulo: 'Quiz nuevo', etiqueta: 'Quiz', subtitulo: '', modo: 'quiz', ritmo: 'guiado', tema: 'violeta', celebrar: true,
       intro: '¡Respondé y sumá puntos! Cada acierto seguido vale más.',
       cierre: { titulo: '¡Gracias por jugar!', texto: '' }, ayuda: null,
       preguntas: [
@@ -31,7 +31,7 @@ const PLANTILLAS = {
   encuesta: {
     emoji: '📋', nombre: 'Encuesta', texto: 'Anónima y sin puntaje. Para conocer dudas y opiniones.',
     def: {
-      titulo: 'Encuesta nueva', etiqueta: 'Encuesta', subtitulo: '', modo: 'encuesta', tema: 'azul', celebrar: true,
+      titulo: 'Encuesta nueva', etiqueta: 'Encuesta', subtitulo: '', modo: 'encuesta', ritmo: 'guiado', tema: 'azul', celebrar: true,
       intro: 'Queremos conocer tu opinión. La encuesta es anónima.',
       cierre: { titulo: '¡Gracias por participar!', texto: '' }, ayuda: null,
       preguntas: [{ tipo: 'unica', texto: '', opciones: ['Sí', 'No', 'No sé'] }],
@@ -40,7 +40,7 @@ const PLANTILLAS = {
   rompehielo: {
     emoji: '☁️', nombre: 'Rompehielo', texto: 'Escala de emojis y nube de palabras para arrancar.',
     def: {
-      titulo: '¿Cómo llegamos hoy?', etiqueta: 'Para arrancar', subtitulo: '', modo: 'encuesta', tema: 'coral', celebrar: true,
+      titulo: '¿Cómo llegamos hoy?', etiqueta: 'Para arrancar', subtitulo: '', modo: 'encuesta', ritmo: 'guiado', tema: 'coral', celebrar: true,
       intro: 'Dos preguntas cortitas para conocernos.',
       cierre: { titulo: '¡Listo, gracias!', texto: 'Mirá la pantalla: ahí están las respuestas de todos.' }, ayuda: null,
       preguntas: [
@@ -115,6 +115,7 @@ function vistaLista() {
       <div class="tarjeta-cuerpo">
         <div class="tarjeta-chips">
           <span class="chip chip--modo">${quiz ? '🎮 Quiz' : '📋 Encuesta'}</span>
+          ${q.def.ritmo === 'guiado' ? '<span class="chip chip--ritmo">🎤 Guiado</span>' : ''}
           <span class="chip ${q.abierto ? 'chip--abierto' : 'chip--cerrado'}">${q.abierto ? 'Abierto' : 'Cerrado'}</span>
         </div>
         <h3 class="tarjeta-titulo"><a href="#/editar/${esc(q.id)}">${esc(q.def.titulo || 'Sin título')}</a></h3>
@@ -127,6 +128,7 @@ function vistaLista() {
         <details class="menu">
           <summary class="boton boton--chico boton--icono" aria-label="Más acciones">${icono('mas')}</summary>
           <div class="menu-lista">
+            <a href="/control/${esc(q.codigo)}" target="_blank" rel="noopener">${icono('qr')} Botonera en el celular</a>
             <button data-accion="copiar" data-codigo="${esc(q.codigo)}">${icono('enlace')} Copiar link para participar</button>
             <a href="/${esc(q.codigo)}?prueba" target="_blank" rel="noopener">${icono('ojo')} Probar como participante</a>
             <button data-accion="abrir-cerrar" data-id="${esc(q.id)}">${icono(q.abierto ? 'candado' : 'candado_abierto')} ${q.abierto ? 'Cerrar respuestas' : 'Abrir respuestas'}</button>
@@ -199,6 +201,7 @@ function renderEditor() {
   aplicarTema(d.tema);
   document.title = `${d.titulo || 'Quiz'} · Editor`;
   const esQuiz = d.modo === 'quiz';
+  const guiado = d.ritmo === 'guiado';
   const lineas = (d.ayuda?.lineas || []).map((l) => `${l.numero}${l.detalle ? ' — ' + l.detalle : ''}`).join('\n');
   app.innerHTML = `
     <header class="editor-top"><div class="panel-ancho editor-top-fila">
@@ -235,6 +238,15 @@ function renderEditor() {
               <span class="modo-emoji">📋</span><b>Encuesta</b><small>Anónima, sin puntaje. Ideal para temas sensibles.</small></label>
             <label class="modo-op"><input type="radio" name="modo" value="quiz" data-campo="modo"${esQuiz ? ' checked' : ''}>
               <span class="modo-emoji">🎮</span><b>Quiz con puntaje</b><small>Apodos, respuestas correctas, rachas y podio.</small></label>
+          </div>
+        </div>
+        <div>
+          <span class="etiqueta">Ritmo</span>
+          <div class="modos">
+            <label class="modo-op"><input type="radio" name="ritmo" value="guiado" data-campo="ritmo"${guiado ? ' checked' : ''}>
+              <span class="modo-emoji">🎤</span><b>Guiado</b><small>Vos activás cada pregunta desde la pantalla o la botonera del celular.</small></label>
+            <label class="modo-op"><input type="radio" name="ritmo" value="libre" data-campo="ritmo"${guiado ? '' : ' checked'}>
+              <span class="modo-emoji">🏃</span><b>Libre</b><small>Cada uno responde de corrido, a su ritmo.</small></label>
           </div>
         </div>
         <div class="editor-fila">
@@ -362,7 +374,7 @@ function validar() {
   const d = ed.def;
   if (!d.titulo?.trim()) e.push('Falta el título.');
   if (!/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/.test(ed.codigo)) e.push('El link tiene que tener entre 3 y 40 letras, números o guiones (sin empezar ni terminar con guión).');
-  if (['panel', 'presentar', 'css', 'js', 'img', 'index', 'responder'].includes(ed.codigo)) e.push(`«${ed.codigo}» está reservado: elegí otro link.`);
+  if (['panel', 'presentar', 'control', 'api', 'css', 'js', 'img', 'index', 'responder'].includes(ed.codigo)) e.push(`«${ed.codigo}» está reservado: elegí otro link.`);
   if (!d.preguntas.length) e.push('Agregá al menos una pregunta.');
   d.preguntas.forEach((p, i) => {
     if (!p.texto?.trim()) e.push(`La pregunta ${i + 1} no tiene texto.`);
@@ -477,7 +489,7 @@ function alInput(e) {
       codigoTocado = true;
     } else if (c === 'abierto') ed.abierto = t.checked;
     else if (c === 'celebrar') d.celebrar = t.checked;
-    else if (c === 'modo' || c === 'tema') {
+    else if (c === 'modo' || c === 'tema' || c === 'ritmo') {
       if (!t.checked) return;
       d[c] = t.value;
       tocar();

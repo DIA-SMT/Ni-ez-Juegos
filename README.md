@@ -9,6 +9,7 @@ los resultados en vivo. Pensado para ~300 chicos a la vez.
 | `/` | Público | Entrar escribiendo el código |
 | `/<codigo>` | Público (QR) | Responder, una pregunta por pantalla |
 | `/presentar/<codigo>` | Equipo (proyector) | QR gigante, sala de espera, resultados en vivo, podio |
+| `/control/<codigo>` | Equipo (celular) | Botonera: pasar preguntas, mostrar la correcta y las respuestas |
 | `/panel` | Equipo | Crear, editar, duplicar, abrir/cerrar, exportar CSV |
 
 ## Dos modos
@@ -22,6 +23,23 @@ los resultados en vivo. Pensado para ~300 chicos a la vez.
 Tipos de pregunta: opción única, opción múltiple (con «Otro» y opción exclusiva),
 escala 1 a 5 con emojis, nube de palabras y texto libre.
 
+## Ritmo: guiado o libre
+
+- **Guiado** (por defecto, como Mentimeter/Kahoot): los chicos escanean el QR y quedan en una
+  sala de espera. Cada pregunta aparece en los celulares cuando el presentador la activa
+  (pasando de placa en la pantalla o con la **botonera** del celular). En el quiz, la respuesta
+  queda enviada y cuando se toca **Mostrar la correcta** a cada uno le llega si acertó, con sus
+  puntos y su racha; mientras tanto, la pantalla muestra solo cuántos respondieron.
+- **Libre**: cada uno responde de corrido, a su ritmo.
+
+La **botonera** copia la de la presentación del CIMT: ACCIÓN en amarillo cuando toca hacer
+algo, SIGUIENTE gigante y borde verde/rojo según si la pantalla recibió el toque. Se abre
+desde la pantalla de presentar con la tecla `B` (muestra un QR) o desde el panel.
+Pantalla y botonera quedan sincronizadas: se puede usar cualquiera de las dos.
+
+Los celulares preguntan el estado cada ~3 segundos (sin conexiones abiertas): el plan gratis
+de Supabase corta Realtime en 200 conexiones y acá son ~300 chicos.
+
 ## Moderación en pantalla
 
 Con 300 chicos, todo lo que escriben arranca **tapado** en la pantalla proyectada:
@@ -30,13 +48,12 @@ Cualquier respuesta, palabra o apodo se oculta tocándolo. Los apodos con malas 
 se reemplazan solos por un animal.
 
 Atajos del presentador: `←` `→` (o el control de diapositivas), `1`–`9`, `Q` (QR),
-`R` (mostrar respuestas), `C` (mostrar la correcta), `F` (pantalla completa).
+`R` (mostrar respuestas), `C` (mostrar la correcta), `B` (botonera), `F` (pantalla completa).
 
 ## Puesta en marcha
 
-1. **Base de datos**: en Supabase → SQL Editor, pegar y correr
-   `supabase/migrations/20261022180000_quizzes_en_vivo.sql`. Crea todo y carga las dos
-   encuestas de Niñez (`consumos` y `silencio`).
+1. **Base de datos**: en Supabase → SQL Editor, correr en orden los archivos de
+   `supabase/migrations/`. Crean todo y cargan las dos encuestas de Niñez (`consumos` y `silencio`).
 2. **Conexión**: en `js/config.js` poner la URL del proyecto y la clave *publishable*
    (o *anon*). Son públicas por diseño: solo permiten leer un quiz y mandar respuestas.
 3. **Deploy**: es un sitio estático, sin build (rutas en `vercel.json`). Está publicado en
@@ -57,8 +74,8 @@ delete from privado.claves where hash <> sha256(convert_to('NUEVA-CLAVE', 'UTF8'
 node dev.mjs
 ```
 
-Abre en http://localhost:5180. Sin `js/config.js` completo funciona en **modo local**
-(todo se guarda en el navegador, cualquier clave entra): sirve para probar, no para el público.
+Abre en http://localhost:5180 contra la base real. Con `MODO_LOCAL=1 node dev.mjs` funciona
+en **modo local** (todo se guarda en el navegador, cualquier clave entra): para probar sin tocar datos.
 
 Sin dependencias ni build: HTML, CSS y JavaScript. El QR usa
 [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) (MIT) en `js/vendor`.

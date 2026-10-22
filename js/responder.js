@@ -1,13 +1,15 @@
 // Pantalla del participante: se abre desde el QR (/<codigo>), una pregunta
 // por pantalla, pensada para el celular. En modo quiz suma puntos, rachas y
 // muestra si acertó; en modo encuesta es tranquila y anónima.
-import { api, MODO_LOCAL, ErrorApi } from './api.js';
+// Ritmo libre: cada uno avanza solo. Ritmo guiado: el celular muestra la
+// pregunta que activa el presentador (ver "Modo guiado", al final).
+import { api, MODO_LOCAL, ErrorApi, uuid } from './api.js';
 import {
   OTRO, MAX_TEXTO, MAX_OTRO, MAX_PALABRA, TIPOS, ESCALA, aplicarTema, ficha, forma,
-  evaluable, esCorrecta, puntosPorAcierto, respondida, apodoAlAzar, emojiDe, normalizarPalabra, aliasSeguro,
+  evaluable, esCorrecta, puntosPorAcierto, respondida, apodoAlAzar, emojiDe, normalizarPalabra, aliasSeguro, puntosRevelados,
 } from './juego.js';
 import { icono } from './iconos.js';
-import { esc, almacen, confeti, contar, plural } from './util.js';
+import { esc, almacen, confeti, contar, plural, toast } from './util.js';
 
 const app = document.getElementById('app');
 const params = new URLSearchParams(location.search);
@@ -46,6 +48,7 @@ async function arrancar() {
   aplicarTema(def.tema);
   document.title = `${def.titulo} · San Miguel de Tucumán`;
   if (!quiz.abierto && !PRUEBA) return mensaje('Este quiz está cerrado', 'Ya no recibe respuestas. ¡Gracias por tu interés!');
+  if (def.ritmo === 'guiado' && !PRUEBA) return arrancarGuiado();
 
   const hecho = almacen.leer(K_HECHO);
   if (hecho?.quizId === quiz.id && !PRUEBA && !params.has('otra')) {
@@ -75,13 +78,14 @@ function mensaje(titulo, texto, extra = '') {
 
 const LOGO = '<img class="logo-ciudad" src="/img/logo-smt-blanco.png" width="507" height="206" alt="Ciudad de San Miguel de Tucumán">';
 const preguntas = () => def.preguntas;
-const actual = () => preguntas()[est.i];
+const actual = () => (est.pantalla === 'sala' ? preguntaActiva() : preguntas()[est.i]);
 
 function render() {
   clearTimeout(avance);
   errorPie = '';
   if (est.pantalla === 'intro') app.innerHTML = vistaIntro();
   else if (est.pantalla === 'pregunta') app.innerHTML = vistaPregunta();
+  else if (est.pantalla === 'sala') return renderSala(true);
   else app.innerHTML = vistaFinal();
   if (PRUEBA) app.insertAdjacentHTML('afterbegin', '<p class="aviso-prueba">Vista previa · las respuestas no se guardan</p>');
   window.scrollTo(0, 0);
@@ -97,7 +101,7 @@ function datosIntro() {
   return [
     esQuiz ? [icono('trofeo'), 'Sumá puntos'] : [icono('candado'), 'Anónima'],
     [icono('lista'), plural(n, 'pregunta', 'preguntas')],
-    [icono('reloj'), `${Math.max(1, Math.round(n * 0.3))} min`],
+    def.ritmo === 'guiado' ? [icono('rayo'), 'En vivo'] : [icono('reloj'), `${Math.max(1, Math.round(n * 0.3))} min`],
   ].map(([i, t]) => `<li>${i}${esc(t)}</li>`).join('');
 }
 
@@ -149,7 +153,7 @@ function vistaIntro() {
     </section>
     <footer class="resp-pie"><div class="resp-ancho resp-pie-fila">
       <button type="button" class="boton boton--primario boton--ancho boton--grande" data-accion="empezar"${n ? '' : ' disabled'}>
-        ${n ? (esQuiz ? '¡A jugar!' : 'Empezar') : 'Todavía no tiene preguntas'} ${n ? icono('flecha-der') : ''}
+        ${n ? (def.ritmo === 'guiado' && !PRUEBA ? '¡Entrar!' : esQuiz ? '¡A jugar!' : 'Empezar') : 'Todavía no tiene preguntas'} ${n ? icono('flecha-der') : ''}
       </button>
     </div></footer>`;
 }
@@ -251,6 +255,7 @@ function campo(p) {
 /* El pie: devolución del quiz + botones. Se redibuja solo, sin tocar las
    opciones, para no perder el foco mientras alguien escribe. */
 function actualizarPie() {
+  if (est.pantalla === 'sala') return pieGuiado();
   const pie = document.getElementById('pie');
   if (!pie) return;
   const p = actual();
@@ -356,6 +361,7 @@ async function cargarRanking() {
 
 /* ── Acciones ── */
 function empezar() {
+  if (g) return entrarSala();
   if (esQuiz) {
     const a = document.getElementById('apodo')?.value.trim();
     est.alias = a || apodoAlAzar();
@@ -509,6 +515,7 @@ app.addEventListener('click', (e) => {
   else if (a === 'atras') atras();
   else if (a === 'saltear') saltear();
   else if (a === 'confirmar') confirmar();
+  else if (a === 'enviar-guiado') enviarGuiado(actual());
   else if (a === 'enviar') enviar();
   else if (a === 'agregar-palabra') agregarPalabra();
   else if (a === 'quitar-palabra') {
@@ -546,6 +553,7 @@ app.addEventListener('change', (e) => {
   if (!otroSel) delete est.r[p.id + '_otro'];
   guardarBorrador();
 
+  if (est.pantalla === 'sala') return trasCambioGuiado(p, t);
   if (esQuiz && evaluable(p) && p.tipo === 'unica') { bloquear(p); return revelar(p); }
   actualizarPie();
   const ultima = est.i === preguntas().length - 1;
@@ -559,7 +567,7 @@ app.addEventListener('input', (e) => {
     document.getElementById('apodo-avatar').textContent = emojiDe(est.alias);
     return guardarBorrador();
   }
-  const p = est.pantalla === 'pregunta' ? actual() : null;
+  const p = est.pantalla === 'pregunta' || est.pantalla === 'sala' ? actual() : null;
   if (!p) return;
   if (t.id === 'campo-texto') {
     est.r[p.id] = t.value;
@@ -576,3 +584,208 @@ app.addEventListener('keydown', (e) => {
   else if (e.target.id === 'apodo') { e.preventDefault(); empezar(); }
   else if (e.target.id === 'campo-otro') { e.preventDefault(); app.querySelector('#pie .boton--primario')?.click(); }
 });
+
+/* ══ Modo guiado ══
+   El presentador activa cada pregunta desde la pantalla o la botonera. El
+   celular entra a la sala (unirse) y pregunta el estado cada ~3 s: muestra
+   la pregunta activa, "respuesta enviada", la devolución cuando se revela
+   la correcta y, al final, el resultado. Cada respuesta se guarda al toque. */
+const K_GUIADO = `resp:${codigo}:guiado`;
+let g = null;          // { quizId, pid, alias, r, enviadas, unido } (queda en este celular)
+let vivo = {};         // el estado que publicó el presentador
+let vistaSala = '';
+let sondeo = null;
+
+const guardarG = () => almacen.guardar(K_GUIADO, g);
+function preguntaActiva() { return vivo.activa ? preguntas().find((p) => p.id === vivo.activa) || null : null; }
+
+async function arrancarGuiado() {
+  g = almacen.leer(K_GUIADO);
+  if (!g || g.quizId !== quiz.id) g = { quizId: quiz.id, pid: uuid(), alias: esQuiz ? apodoAlAzar() : '', r: {}, enviadas: {}, unido: false };
+  est.alias = g.alias;
+  if (!g.unido) return render();
+  est.pantalla = 'sala';
+  await sondear(true);
+}
+
+async function entrarSala() {
+  if (esQuiz) g.alias = est.alias = document.getElementById('apodo')?.value.trim() || est.alias || apodoAlAzar();
+  const b = app.querySelector('[data-accion="empezar"]');
+  if (b) { b.disabled = true; b.textContent = 'Entrando…'; }
+  try {
+    await conReintento(() => api.unirse(codigo, g.pid, g.alias));
+  } catch (e) {
+    if (e instanceof ErrorApi && e.codigo === 'cerrado') return mensaje('Este quiz está cerrado', 'Ya no recibe respuestas. ¡Gracias por tu interés!');
+    if (b) { b.disabled = false; b.textContent = 'Reintentar'; }
+    return toast('No pudimos conectarte. Probá de nuevo.');
+  }
+  g.unido = true;
+  guardarG();
+  est.pantalla = 'sala';
+  await sondear(true);
+}
+
+async function sondear(forzar = false) {
+  clearTimeout(sondeo);
+  try {
+    const r = await api.estado(codigo);
+    if (!r) return mensaje('Este quiz ya no existe', 'Pedile el código nuevo a quien presenta.');
+    if (!r.abierto) return mensaje('Este quiz está cerrado', 'Ya no recibe respuestas. ¡Gracias por participar!');
+    const nuevo = r.en_vivo || {};
+    if (forzar || (nuevo.rev || 0) !== (vivo.rev || 0)) {
+      vivo = nuevo;
+      await alCambiarVivo();
+    }
+  } catch { /* sin señal: se vuelve a intentar solo */ }
+  // ~3 s con un poco de azar: 300 celulares no preguntan todos a la vez.
+  sondeo = setTimeout(sondear, document.hidden ? 10000 : 2500 + Math.random() * 1500);
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && g?.unido) sondear(); });
+
+async function alCambiarVivo() {
+  if (vivo.fin) {
+    if (est.pantalla === 'final') return;
+    est.pantalla = 'final';
+    let r = null;
+    if (esQuiz) { try { r = await api.miResultado(codigo, g.pid); } catch { /* se muestra lo que hay */ } }
+    resultado = { puntaje: 0, aciertos: 0, ...(r || {}), recien: true };
+    render();
+    if (esQuiz) { contar(document.getElementById('puntaje-n'), resultado.puntaje); cargarRanking(); }
+    if (esQuiz || def.celebrar) confeti();
+    return;
+  }
+  if (est.pantalla === 'final') est.pantalla = 'sala';
+  renderSala();
+}
+
+function renderSala(forzar = false) {
+  const p = preguntaActiva();
+  let tipo = 'pregunta';
+  if (!p) tipo = 'espera';
+  else if (g.enviadas[p.id]) tipo = esQuiz && evaluable(p) ? ((vivo.correctas || []).includes(p.id) ? 'devolucion' : 'enviada-quiz') : 'enviada';
+  else if (vivo.cerrada) tipo = 'cerrada';
+  const claveVista = `${tipo}:${p?.id || ''}:${(vivo.correctas || []).length}`;
+  if (!forzar && claveVista === vistaSala) return;
+  vistaSala = claveVista;
+  clearTimeout(avance);
+  app.innerHTML = vistaSalaHtml(tipo, p);
+  window.scrollTo(0, 0);
+  if (tipo === 'pregunta') { pieGuiado(); document.getElementById('pt')?.focus({ preventScroll: true }); }
+  if (tipo === 'devolucion' && esCorrecta(p, g.r[p.id])) confeti({ cantidad: 70, duracion: 1600 });
+}
+
+function hudGuiado() {
+  const { puntaje, racha } = puntosRevelados(def, g.r, vivo.correctas || []);
+  return `<span class="hud">
+    <span class="hud-racha${racha >= 2 ? '' : ' hud-racha--oculta'}">🔥 ${racha}</span>
+    <span class="hud-puntos">⭐ ${puntaje.toLocaleString('es-AR')}</span>
+  </span>`;
+}
+
+function vistaSalaHtml(tipo, p) {
+  const n = preguntas().length;
+  const k = p ? preguntas().indexOf(p) + 1 : 0;
+  const top = `<header class="resp-top marca"><div class="resp-ancho resp-top-fila">
+      <img class="logo-ciudad logo-ciudad--chico" src="/img/logo-smt-blanco.png" width="507" height="206" alt="Ciudad de San Miguel de Tucumán">
+      <span class="resp-paso">${p ? `Pregunta ${k} de ${n}` : '<span class="en-vivo">En vivo</span>'}</span>
+      ${esQuiz ? hudGuiado() : ''}
+    </div></header>`;
+  if (tipo === 'pregunta') {
+    const vale = esQuiz && evaluable(p) ? `<span class="vale">${icono('rayo')} Vale puntos</span>` : '';
+    return `${top}
+      <section class="resp-cuerpo resp-ancho">
+        <div class="pregunta" role="group" aria-labelledby="pt">
+          <p class="pregunta-num">Pregunta ${k} ${vale}</p>
+          <h2 id="pt" class="pregunta-texto" tabindex="-1">${esc(p.texto)}</h2>
+          ${ayudaDeTipo(p)}
+          ${campo(p)}
+        </div>
+        ${lineaAyuda()}
+      </section>
+      <footer class="resp-pie"><div class="resp-ancho" id="pie"></div></footer>`;
+  }
+  const correcta = p && esQuiz && evaluable(p)
+    ? (p.tipo === 'unica' ? `«${esc(p.correcta)}»` : (p.correctas || []).map((c) => `«${esc(c)}»`).join(', ')) : '';
+  let emoji = '👀', titulo = '¡Ya estás adentro!', texto = 'Mirá la pantalla: cuando arranque la próxima pregunta, aparece acá.', extra = '', clase = '';
+  if (tipo === 'enviada') { emoji = '✅'; titulo = '¡Respuesta enviada!'; texto = 'Gracias. Esperá la próxima pregunta.'; }
+  else if (tipo === 'enviada-quiz') { emoji = '⏳'; titulo = '¡Respuesta enviada!'; texto = 'Esperá a que se muestre la correcta en la pantalla…'; }
+  else if (tipo === 'cerrada') {
+    emoji = '🔒'; titulo = 'Se cerró esta pregunta'; texto = 'Esperá la próxima: va a aparecer acá.';
+    if (correcta && (vivo.correctas || []).includes(p.id)) extra = `<p class="sala-correcta">La correcta era ${correcta}</p>`;
+  } else if (tipo === 'devolucion') {
+    const ok = esCorrecta(p, g.r[p.id]);
+    const gano = puntosRevelados(def, g.r, vivo.correctas || []).ganancia[p.id] || { pts: 0, racha: 0 };
+    clase = ok ? ' sala--ok' : ' sala--mal';
+    emoji = ok ? '🎉' : '😅';
+    titulo = ok ? ['¡Correcto!', '¡Bien ahí!', '¡Excelente!', '¡Crack!'][gano.racha % 4] : '¡Uy! No era esa';
+    texto = ok ? `+${gano.pts} puntos${gano.racha >= 2 ? ` · 🔥 racha de ${gano.racha}` : ''}` : `La correcta: ${correcta}`;
+  } else if (esQuiz) {
+    emoji = emojiDe(g.alias);
+    extra = `<p class="sala-apodo">Jugás como <b>${esc(g.alias)}</b></p>`;
+  }
+  const esperando = tipo === 'espera' || tipo.startsWith('enviada') || tipo === 'cerrada';
+  return `${top}
+    <section class="resp-cuerpo resp-ancho">
+      <div class="sala${clase}" role="status">
+        <div class="sala-emoji" aria-hidden="true">${emoji}</div>
+        <h1 class="sala-titulo">${titulo}</h1>
+        <p class="sala-texto">${texto}</p>
+        ${extra}
+        ${esperando ? '<div class="puntitos" aria-hidden="true"><span></span><span></span><span></span></div>' : ''}
+      </div>
+      ${lineaAyuda()}
+    </section>`;
+}
+
+function pieGuiado() {
+  const pie = document.getElementById('pie');
+  const p = preguntaActiva();
+  if (!pie || !p) return;
+  const v = est.r[p.id];
+  const alToque = (p.tipo === 'unica' && v !== OTRO) || p.tipo === 'escala';
+  const listo = respondida(p, v);
+  pie.innerHTML = `${errorPie ? `<p class="resp-error" role="alert">${esc(errorPie)}</p>` : ''}
+    <div class="resp-pie-fila">${alToque && !errorPie
+      ? `<p class="pie-ayuda">${enviando || listo ? 'Enviando…' : 'Tocá una opción para responder'}</p>`
+      : `<button type="button" class="boton boton--ancho boton--grande boton--primario" data-accion="enviar-guiado"${!listo || enviando ? ' disabled' : ''}>
+          ${enviando ? 'Enviando…' : 'Enviar'} ${enviando ? '' : icono('flecha-der')}</button>`}
+    </div>`;
+}
+
+function trasCambioGuiado(p, t) {
+  errorPie = '';
+  pieGuiado();
+  // Opción única y escala se mandan al tocar (como en Kahoot); el resto, con "Enviar".
+  if ((p.tipo === 'unica' && t.value !== OTRO) || p.tipo === 'escala') avance = setTimeout(() => enviarGuiado(p), 250);
+}
+
+async function enviarGuiado(p) {
+  if (enviando || !p || g.enviadas[p.id]) return;
+  const v = est.r[p.id];
+  if (!respondida(p, v)) return;
+  const valor = typeof v === 'string' ? v.trim() : v;
+  const otroSel = p.otro && (Array.isArray(v) ? v.includes(OTRO) : v === OTRO);
+  enviando = true;
+  errorPie = '';
+  app.querySelectorAll('.pregunta input, .pregunta textarea, .pregunta button').forEach((x) => { x.disabled = true; });
+  pieGuiado();
+  try {
+    await conReintento(() => api.responderPregunta(codigo, g.pid, g.alias, p.id, valor, otroSel ? est.r[p.id + '_otro'] : null));
+    g.r[p.id] = valor;
+    g.enviadas[p.id] = true;
+    guardarG();
+  } catch (e) {
+    const c = e instanceof ErrorApi ? e.codigo : '';
+    if (c === 'ya') { g.r[p.id] ??= valor; g.enviadas[p.id] = true; guardarG(); }
+    else if (c === 'cerrada') vivo = { ...vivo, cerrada: true };
+    else if (c === 'cerrado') { enviando = false; return mensaje('Este quiz se cerró', 'Ya no recibe respuestas. ¡Gracias por participar!'); }
+    else errorPie = 'No se pudo enviar. Revisá tu conexión y probá de nuevo.';
+  }
+  enviando = false;
+  if (errorPie) {
+    app.querySelectorAll('.pregunta input, .pregunta textarea, .pregunta button').forEach((x) => { x.disabled = false; });
+    pieGuiado();
+  } else {
+    renderSala(true);
+  }
+}

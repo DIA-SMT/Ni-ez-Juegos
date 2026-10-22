@@ -443,3 +443,48 @@ summary.nav-boton::-webkit-details-marker { display: none; }
   .podio-avatar { font-size: 2.25rem; }
   .podio-alias { font-size: 1rem; }
 }
+
+/* Quiz guiado: mientras responden, solo el contador (como en Kahoot) */
+.espera-resp { display: grid; justify-items: center; gap: 1.5rem; padding: 2rem 0; text-align: center; }
+.espera-n { display: flex; align-items: baseline; gap: 0.75rem; font-weight: 700; color: var(--texto-2); font-size: 1.5rem; }
+.espera-n b { font-size: 6rem; font-weight: 900; line-height: 1; letter-spacing: -0.05em; color: var(--acento); font-variant-numeric: tabular-nums; }
+.espera-pista { width: min(40rem, 100%); height: 1.25rem; overflow: hidden; border-radius: 999px; background: var(--elevado); }
+.espera-relleno { width: 0; height: 100%; border-radius: 999px; background: var(--acento); transition: width 0.6s var(--ease); }
+.espera-fichas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; width: min(56rem, 100%); }
+.espera-fichas li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 4rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: 1rem;
+  background: var(--f-fondo);
+  color: var(--f-texto);
+  font-size: 1.375rem;
+  font-weight: 800;
+  text-align: left;
+}
+.espera-fichas .forma { flex: none; width: 1.5rem; height: 1.5rem; }
+
+/* Cierre de la encuesta */
+.fin-slide { display: grid; justify-items: center; align-content: center; gap: 1.25rem; min-height: 100%; text-align: center; animation: entrar 0.45s var(--ease); }
+.fin-check { display: grid; place-items: center; width: 7rem; height: 7rem; border-radius: 50%; background: var(--amarillo); color: var(--tinta); box-shadow: 0 0 0 1rem rgba(244, 220, 0, 0.2); animation: pop 0.6s var(--resorte); }
+.fin-check .icono { width: 3.5rem; height: 3.5rem; stroke-width: 3; }
+.fin-titulo { font-size: 3.25rem; font-weight: 900; letter-spacing: -0.04em; text-wrap: balance; }
+.fin-texto { max-width: 46rem; font-size: 1.5rem; color: var(--texto-2); }
+.fin-n { font-size: 1.375rem; font-weight: 700; color: var(--texto-3); }
+.fin-n b { font-size: 2.25rem; color: var(--acento); }
+
+/* QR de la botonera */
+.modal { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 1rem; background: rgba(6, 43, 107, 0.6); backdrop-filter: blur(4px); animation: entrar 0.2s ease; }
+.modal-caja { display: grid; justify-items: center; gap: 1rem; width: min(30rem, 100%); padding: 2rem; border-radius: 1.5rem; background: #FFFFFF; text-align: center; box-shadow: var(--sombra-lg); }
+.modal-caja h2 { font-size: 1.75rem; font-weight: 850; letter-spacing: -0.02em; }
+.modal-caja p { color: var(--texto-2); }
+.modal-qr { width: min(18rem, 70vw); }
+.modal-url { font-weight: 800; color: var(--tinta) !important; overflow-wrap: anywhere; }
+
+@media (max-width: 900px) {
+  .espera-n b { font-size: 4rem; }
+  .espera-fichas { grid-template-columns: 1fr; }
+  .fin-titulo { font-size: 2rem; }
+}

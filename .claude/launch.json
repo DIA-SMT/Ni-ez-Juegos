@@ -6,6 +6,13 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["dev.mjs"],
       "port": 5180
+    },
+    {
+      "name": "quizzes-local",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["dev.mjs"],
+      "env": { "MODO_LOCAL": "1", "PORT": "5181" },
+      "port": 5181
     }
   ]
 }

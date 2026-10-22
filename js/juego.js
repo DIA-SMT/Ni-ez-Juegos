@@ -84,6 +84,19 @@ export function puntuar(def, datos) {
   return { puntaje, aciertos, evaluables };
 }
 
+// Modo guiado: el puntaje que ya se puede mostrar (solo de las preguntas
+// cuya correcta reveló el presentador) y cuánto sumó cada una.
+export function puntosRevelados(def, datos, reveladas = []) {
+  let puntaje = 0, racha = 0;
+  const ganancia = {};
+  for (const p of def.preguntas) {
+    if (!evaluable(p) || !reveladas.includes(p.id)) continue;
+    if (esCorrecta(p, datos[p.id])) { racha++; ganancia[p.id] = { pts: puntosPorAcierto(racha), racha }; puntaje += ganancia[p.id].pts; }
+    else { racha = 0; ganancia[p.id] = { pts: 0, racha: 0 }; }
+  }
+  return { puntaje, racha, ganancia };
+}
+
 export function respondida(p, v) {
   if (p.tipo === 'texto') return typeof v === 'string' && v.trim() !== '';
   if (p.tipo === 'multiple' || p.tipo === 'nube') return Array.isArray(v) && v.length > 0;

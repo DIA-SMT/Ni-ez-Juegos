@@ -1,0 +1,123 @@
+/* ── Botonera del presentador ──
+   Como la del CIMT: cada zona tiene un alto proporcional a la pantalla y
+   NUNCA crece por el texto (se corta con "…"), así los botones no se mueven
+   de lugar en medio de la charla. */
+html, body { height: 100%; overflow: hidden; background: var(--tinta); user-select: none; touch-action: manipulation; }
+
+.bot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1.05fr) minmax(0, 1.3fr) minmax(0, 0.55fr) auto;
+  gap: 10px;
+  height: 100vh;
+  height: 100dvh;
+  padding: calc(10px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
+  color: #FFFFFF;
+}
+.bot button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 22px;
+  color: inherit;
+  font-weight: 900;
+  line-height: 1.1;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.08s ease, filter 0.15s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+.bot button:active:not(:disabled) { transform: scale(0.97); filter: brightness(1.2); }
+.bot button:disabled, .bot button[aria-disabled="true"] { opacity: 0.45; }
+.bot button small {
+  display: -webkit-box;
+  max-width: 94%;
+  overflow: hidden;
+  font-size: clamp(12px, 3.6vw, 15px);
+  font-weight: 650;
+  line-height: 1.25;
+  opacity: 0.88;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+/* Confirmación de cada toque: borde verde si la pantalla lo recibió, rojo si no */
+.bot button.enviando { box-shadow: inset 0 0 0 4px rgba(255, 255, 255, 0.55); }
+.bot button.llego { box-shadow: inset 0 0 0 5px #34D399; }
+.bot button.fallo { box-shadow: inset 0 0 0 5px #F87171; animation: sacudir 0.35s ease; }
+
+.bot-estado { display: flex; align-items: center; gap: 10px; min-height: 32px; font-size: 14px; font-weight: 650; color: #B9C8E4; }
+.bot-punto { flex: none; width: 12px; height: 12px; border-radius: 50%; background: #F87171; }
+.bot-punto.ok { background: #34D399; }
+.bot-titulo { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #E4ECF8; }
+.bot-num { display: flex; align-items: center; gap: 8px; color: #FFFFFF; font-size: 16px; }
+.bot-guiado { padding: 2px 8px; border-radius: 999px; background: rgba(244, 220, 0, 0.18); color: var(--amarillo); font-size: 11px; letter-spacing: 0.06em; }
+
+.bot-tarjeta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 14px 16px;
+  border-left: 4px solid var(--celeste);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.bot-tipo { font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--celeste); }
+.bot-texto {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: clamp(16px, 4.6vw, 20px);
+  font-weight: 800;
+  line-height: 1.25;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+.bot-stats { margin-top: auto; font-size: 15px; color: #B9C8E4; }
+.bot-stats b { font-size: 20px; color: #FFFFFF; font-variant-numeric: tabular-nums; }
+.bot-stats .bot-bien { color: #34D399; }
+
+/* ACCIÓN: amarillo cuando toca hacer algo en esta pregunta */
+.bot-accion { background: #0D3B85; font-size: clamp(20px, 6.6vw, 28px); }
+.bot-accion.toca { background: var(--amarillo); color: var(--tinta); animation: late 1.3s ease-in-out infinite; }
+.bot-accion.nada { background: rgba(255, 255, 255, 0.06); color: #8FA3C6; }
+@keyframes late { 0%, 100% { box-shadow: 0 0 0 0 rgba(244, 220, 0, 0); } 50% { box-shadow: 0 0 0 6px rgba(244, 220, 0, 0.35); } }
+.bot-siguiente { background: var(--azul); font-size: clamp(26px, 9vw, 38px); }
+
+.bot-fila { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; min-height: 0; }
+.bot-gris { flex-direction: row !important; gap: 8px !important; background: rgba(255, 255, 255, 0.1); font-size: clamp(15px, 4.6vw, 19px); }
+.bot-gris .icono { width: 22px; height: 22px; }
+
+.bot-chips { display: flex; gap: 6px; overflow-x: auto; padding: 2px; scrollbar-width: none; }
+.bot .chip-s {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 16px;
+}
+.bot .chip-s .icono { width: 20px; height: 20px; }
+.bot .chip-s.hecha { opacity: 0.55; }
+.bot .chip-s.actual { border-color: #34D399; background: #34D399; color: #052E1F; opacity: 1; }
+
+/* Celular acostado: ACCIÓN y SIGUIENTE lado a lado */
+@media (orientation: landscape) and (max-height: 560px) {
+  .bot {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 0.8fr) minmax(0, 1.3fr) minmax(0, 0.6fr) auto;
+    gap: 8px;
+  }
+  .bot-estado, .bot-tarjeta, .bot-chips { grid-column: 1 / -1; }
+  .bot-fila { grid-column: 1 / -1; }
+  .bot-texto { -webkit-line-clamp: 2; }
+}

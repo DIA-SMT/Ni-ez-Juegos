@@ -3,6 +3,7 @@
   "rewrites": [
     { "source": "/panel", "destination": "/panel.html" },
     { "source": "/presentar/:codigo", "destination": "/presentar.html" },
+    { "source": "/control/:codigo", "destination": "/control.html" },
     { "source": "/:codigo([a-zA-Z0-9-]+)", "destination": "/responder.html" }
   ],
   "headers": [
