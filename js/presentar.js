@@ -4,7 +4,7 @@
 // la botonera del celular (/control/<codigo>). Lo que se ve acá se guarda en
 // la base (en_vivo): en modo guiado, los celulares muestran la pregunta activa.
 import { api, MODO_LOCAL, clave as claveEquipo } from './api.js';
-import { OTRO, TIPOS, ESCALA, aplicarTema, ficha, forma, evaluable, agregar, aCsv, emojiDe, aliasSeguro, esInapropiado } from './juego.js';
+import { OTRO, TIPOS, ESCALA, aplicarTema, ficha, forma, evaluable, agregar, aCsv, contactosCsv, emojiDe, aliasSeguro, esInapropiado } from './juego.js';
 import { icono } from './iconos.js';
 import { qrHtml } from './qr.js';
 import { esc, almacen, toast, descargar, copiar, plural, confeti } from './util.js';
@@ -186,6 +186,7 @@ function renderNav() {
         <button data-ir="${n() + 1}">${icono(esQuiz ? 'trofeo' : 'check')} ${esQuiz ? 'Podio' : 'Cierre'}</button>
         <hr>
         <button data-accion="csv">${icono('descargar')} Descargar respuestas (CSV)</button>
+        ${def.contacto && def.contacto !== 'no' ? `<button data-accion="csv-contactos">${icono('telefono')} Descargar contactos (CSV)</button>` : ''}
         <button data-accion="copiar">${icono('enlace')} Copiar link para participar</button>
         <button data-accion="botonera">${icono('qr')} Botonera en el celular (opcional)</button>
         <a href="/panel">${icono('lapiz')} Ir al panel</a>
@@ -584,7 +585,7 @@ function pantallaCompleta() {
 }
 
 async function borrarTodo() {
-  const r = prompt(`Se van a borrar las ${filas.length} respuestas de «${def.titulo}». No se puede deshacer.\n\nEscribí BORRAR para confirmar:`);
+  const r = prompt(`Se van a borrar las ${filas.length} respuestas${def.contacto && def.contacto !== 'no' ? ' y los contactos' : ''} de «${def.titulo}». No se puede deshacer.\n\nEscribí BORRAR para confirmar:`);
   if (r?.trim().toUpperCase() !== 'BORRAR') return;
   try {
     const cuantas = await api.borrarRespuestas(clave, codigo);
@@ -630,6 +631,12 @@ app.addEventListener('click', async (e) => {
   else if (a === 'pantalla-completa') pantallaCompleta();
   else if (a === 'copiar') toast(await copiar(urlQuiz) ? 'Link copiado' : urlQuiz);
   else if (a === 'csv') descargar(`${codigo}-respuestas.csv`, aCsv(def, filas));
+  else if (a === 'csv-contactos') {
+    try {
+      const lista = await api.contactos(clave, codigo);
+      if (lista.length) descargar(`${codigo}-contactos.csv`, contactosCsv(lista)); else toast('Todavía no hay contactos');
+    } catch { toast('No se pudieron descargar los contactos'); }
+  }
   else if (a === 'borrar') borrarTodo();
   else if (a === 'botonera') mostrarBotonera();
   if (a === 'anterior' || a === 'siguiente') b.blur();

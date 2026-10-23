@@ -199,6 +199,16 @@ export function agregar(p, filas) {
 }
 
 /* ── Exportar ── CSV con ; y BOM: Excel en castellano lo abre directo. */
+const celdaCsv = (v) => {
+  let s = Array.isArray(v) ? v.join(' | ') : v == null ? '' : String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;                  // que Excel no lo tome como fórmula
+  return '"' + s.replace(/"/g, '""') + '"';
+};
+export function contactosCsv(lista) {
+  return '﻿' + [['Nombre y apellido', 'Teléfono', 'Fecha'].map(celdaCsv).join(';'),
+    ...lista.map((c) => [c.nombre, c.telefono, c.fecha].map(celdaCsv).join(';'))].join('\r\n');
+}
+
 export function aCsv(def, filas) {
   const cols = [['id', 'N°'], ['t', 'Fecha']];
   if (def.modo === 'quiz') cols.push(['alias', 'Apodo'], ['puntaje', 'Puntaje']);

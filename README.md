@@ -40,6 +40,14 @@ Pantalla y botonera quedan sincronizadas: se puede usar cualquiera de las dos.
 Los celulares preguntan el estado cada ~3 segundos (sin conexiones abiertas): el plan gratis
 de Supabase corta Realtime en 200 conexiones y acá son ~300 chicos.
 
+## Datos de contacto
+
+Cada quiz puede pedir **nombre y teléfono** en la primera pantalla (No pedir / Opcional /
+Obligatorio, en el editor). Se guardan **aparte** de las respuestas, sin nada que los una
+(ni el participante, ni la hora: solo el día), así las respuestas siguen siendo anónimas.
+Se descargan en CSV desde el panel o desde el menú de la pantalla de presentar, con la clave
+del equipo. «Borrar respuestas» también borra los contactos.
+
 ## Moderación en pantalla
 
 Con 300 chicos, todo lo que escriben arranca **tapado** en la pantalla proyectada:

@@ -17,6 +17,7 @@ const codigo = (params.get('c') || location.pathname.split('/').filter(Boolean)[
 const PRUEBA = params.has('prueba');
 const K_BORRADOR = `resp:${codigo}:borrador`;
 const K_HECHO = `resp:${codigo}:hecho`;
+const K_CONTACTO = `resp:${codigo}:contacto`;
 
 let quiz = null;
 let def = null;
@@ -149,6 +150,7 @@ function vistaIntro() {
     <section class="resp-cuerpo resp-ancho">
       ${def.intro ? `<p class="resp-intro">${esc(def.intro)}</p>` : ''}
       ${apodo}
+      ${cajaContacto()}
       ${cajaAyuda()}
     </section>
     <footer class="resp-pie"><div class="resp-ancho resp-pie-fila">
@@ -156,6 +158,51 @@ function vistaIntro() {
         ${n ? (def.ritmo === 'guiado' && !PRUEBA ? '¡Entrar!' : esQuiz ? '¡A jugar!' : 'Empezar') : 'Todavía no tiene preguntas'} ${n ? icono('flecha-der') : ''}
       </button>
     </div></footer>`;
+}
+
+// Nombre y teléfono, si el quiz los pide. Se mandan aparte de las respuestas.
+const pideContacto = () => def.contacto === 'obligatorio' || def.contacto === 'opcional';
+function cajaContacto() {
+  if (!pideContacto() || PRUEBA || almacen.leer(K_CONTACTO)) return '';
+  const opcional = def.contacto === 'opcional';
+  return `<div class="contacto">
+    <p class="contacto-titulo">${icono('telefono')} Tus datos de contacto ${opcional ? '<small>(opcional)</small>' : ''}</p>
+    <div>
+      <label class="etiqueta" for="c-nombre">Nombre y apellido</label>
+      <input id="c-nombre" class="campo" autocomplete="name" autocapitalize="words" maxlength="80">
+    </div>
+    <div>
+      <label class="etiqueta" for="c-tel">Teléfono (WhatsApp)</label>
+      <input id="c-tel" class="campo" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" placeholder="381 555 1234">
+    </div>
+    <p class="contacto-nota">${icono('candado')} Se guardan aparte de tus respuestas: lo que respondas sigue siendo anónimo. Solo los ve el equipo de la Municipalidad, para contactarte.</p>
+    <p class="contacto-error" id="c-error" role="alert" hidden></p>
+  </div>`;
+}
+
+// true si se puede seguir (sin pedir, ya enviado o enviado ahora).
+async function enviarContacto() {
+  const nombre = document.getElementById('c-nombre');
+  if (!nombre) return true;
+  const tel = document.getElementById('c-tel');
+  const error = document.getElementById('c-error');
+  const n = nombre.value.trim().replace(/\s+/g, ' ');
+  const t = tel.value.replace(/[^0-9+]/g, '');
+  const digitos = t.replace(/\D/g, '').length;
+  const mostrar = (msg, campo) => { error.textContent = msg; error.hidden = false; campo?.focus(); return false; };
+  if (def.contacto === 'opcional' && !n && !t) { almacen.guardar(K_CONTACTO, 'salteado'); return true; }
+  if (n.length < 2) return mostrar('Escribí tu nombre y apellido.', nombre);
+  if (digitos < 8 || digitos > 15) return mostrar('Revisá el teléfono: con característica, por ejemplo 381 555 1234.', tel);
+  error.hidden = true;
+  try {
+    await conReintento(() => api.dejarContacto(codigo, n, t));
+  } catch (e) {
+    if (e instanceof ErrorApi && e.codigo === 'invalido') return mostrar('Revisá el nombre y el teléfono.', tel);
+    if (e instanceof ErrorApi && e.codigo === 'cerrado') { mensaje('Este quiz está cerrado', 'Ya no recibe respuestas. ¡Gracias por tu interés!'); return false; }
+    return mostrar('No se pudo guardar. Revisá tu conexión y probá de nuevo.');
+  }
+  almacen.guardar(K_CONTACTO, true);
+  return true;
 }
 
 function vistaPregunta() {
@@ -360,7 +407,15 @@ async function cargarRanking() {
 }
 
 /* ── Acciones ── */
-function empezar() {
+async function empezar() {
+  const b = app.querySelector('[data-accion="empezar"]');
+  if (b?.disabled) return;
+  if (document.getElementById('c-nombre')) {
+    if (b) b.disabled = true;
+    const ok = await enviarContacto();
+    if (b) b.disabled = false;
+    if (!ok) return;
+  }
   if (g) return entrarSala();
   if (esQuiz) {
     const a = document.getElementById('apodo')?.value.trim();
@@ -581,7 +636,8 @@ app.addEventListener('input', (e) => {
 app.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
   if (e.target.id === 'nube-campo') { e.preventDefault(); agregarPalabra(); }
-  else if (e.target.id === 'apodo') { e.preventDefault(); empezar(); }
+  else if (e.target.id === 'apodo' || e.target.id === 'c-tel') { e.preventDefault(); empezar(); }
+  else if (e.target.id === 'c-nombre') { e.preventDefault(); document.getElementById('c-tel')?.focus(); }
   else if (e.target.id === 'campo-otro') { e.preventDefault(); app.querySelector('#pie .boton--primario')?.click(); }
 });
 

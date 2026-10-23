@@ -415,3 +415,20 @@
 .puntitos span:nth-child(3) { animation-delay: 0.3s; }
 @keyframes saltito { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-8px); opacity: 1; } }
 .pie-ayuda { flex: 1; padding: 16px; border-radius: 16px; background: var(--elevado); color: var(--texto-2); font-weight: 750; text-align: center; }
+
+/* ── Datos de contacto (primera pantalla) ── */
+.contacto {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--borde);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: var(--sombra-md);
+}
+.contacto-titulo { display: flex; align-items: center; gap: 8px; font-weight: 850; color: var(--tinta); }
+.contacto-titulo .icono { color: var(--acento); }
+.contacto-titulo small { font-weight: 600; color: var(--texto-3); }
+.contacto-nota { display: flex; align-items: flex-start; gap: 8px; font-size: 0.875rem; color: var(--texto-3); }
+.contacto-nota .icono { flex: none; width: 16px; height: 16px; margin-top: 2px; color: var(--exito); }
+.contacto-error { padding: 10px 12px; border-radius: 12px; background: var(--peligro-suave); color: var(--peligro-ink); font-size: 0.9375rem; font-weight: 650; }

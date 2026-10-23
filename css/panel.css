@@ -330,3 +330,11 @@
 }
 
 .chip--ritmo { background: rgba(244, 220, 0, 0.22); color: #6B5B00; }
+
+/* Selector de tres opciones (datos de contacto) */
+.segmento { display: inline-grid; grid-auto-flow: column; gap: 4px; padding: 4px; border-radius: var(--r-lg); background: var(--elevado); }
+.segmento-op { position: relative; cursor: pointer; }
+.segmento-op input { position: absolute; opacity: 0; pointer-events: none; }
+.segmento-op span { display: block; padding: 8px 16px; border-radius: var(--r-md); font-weight: 750; color: var(--texto-2); }
+.segmento-op input:checked + span { background: #FFFFFF; color: var(--acento); box-shadow: var(--sombra-sm); }
+.segmento-op input:focus-visible + span { box-shadow: var(--foco); }

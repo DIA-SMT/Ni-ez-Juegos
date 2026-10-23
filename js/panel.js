@@ -2,7 +2,7 @@
 // cerrar, exportar). Todo pide la clave del equipo, que queda guardada en
 // este navegador hasta tocar "Salir".
 import { api, MODO_LOCAL, clave as claveEquipo } from './api.js';
-import { OTRO, TIPOS, TEMAS, aplicarTema, ficha, forma, evaluable, aCsv, nuevoId } from './juego.js';
+import { OTRO, TIPOS, TEMAS, aplicarTema, ficha, forma, evaluable, aCsv, contactosCsv, nuevoId } from './juego.js';
 import { icono } from './iconos.js';
 import { esc, toast, descargar, copiar, plural } from './util.js';
 
@@ -119,7 +119,7 @@ function vistaLista() {
           <span class="chip ${q.abierto ? 'chip--abierto' : 'chip--cerrado'}">${q.abierto ? 'Abierto' : 'Cerrado'}</span>
         </div>
         <h3 class="tarjeta-titulo"><a href="#/editar/${esc(q.id)}">${esc(q.def.titulo || 'Sin título')}</a></h3>
-        <p class="tarjeta-meta">${plural(q.def.preguntas.length, 'pregunta', 'preguntas')} · <b>${plural(q.respuestas || 0, 'respuesta', 'respuestas')}</b></p>
+        <p class="tarjeta-meta">${plural(q.def.preguntas.length, 'pregunta', 'preguntas')} · <b>${plural(q.respuestas || 0, 'respuesta', 'respuestas')}</b>${q.def.contacto && q.def.contacto !== 'no' ? ` · <b>${plural(q.contactos || 0, 'contacto', 'contactos')}</b>` : ''}</p>
         <p class="tarjeta-link">${icono('enlace')} ${esc(location.host)}/<b>${esc(q.codigo)}</b></p>
       </div>
       <div class="tarjeta-acciones">
@@ -134,6 +134,7 @@ function vistaLista() {
             <button data-accion="abrir-cerrar" data-id="${esc(q.id)}">${icono(q.abierto ? 'candado' : 'candado_abierto')} ${q.abierto ? 'Cerrar respuestas' : 'Abrir respuestas'}</button>
             <button data-accion="duplicar" data-id="${esc(q.id)}">${icono('copiar')} Duplicar</button>
             <button data-accion="csv" data-codigo="${esc(q.codigo)}">${icono('descargar')} Descargar respuestas (CSV)</button>
+            <button data-accion="csv-contactos" data-codigo="${esc(q.codigo)}">${icono('telefono')} Descargar contactos (CSV)</button>
             <button data-accion="vaciar" data-codigo="${esc(q.codigo)}">${icono('recargar')} Borrar respuestas</button>
             <button data-accion="eliminar" data-id="${esc(q.id)}" class="menu-peligro">${icono('papelera')} Eliminar quiz</button>
           </div>
@@ -263,6 +264,11 @@ function renderEditor() {
               <input id="f-codigo" data-campo="codigo" maxlength="40" spellcheck="false" autocapitalize="off" value="${esc(ed.codigo)}"></div>
             <small class="ayuda-campo">Letras, números y guiones. Corto y fácil de dictar.</small>
           </div>
+        </div>
+        <div>
+          <span class="etiqueta">Datos de contacto <small>· nombre y teléfono, se guardan aparte de las respuestas</small></span>
+          <div class="segmento">${[['no', 'No pedir'], ['opcional', 'Opcional'], ['obligatorio', 'Obligatorio']].map(([v, t]) => `
+            <label class="segmento-op"><input type="radio" name="contacto" value="${v}" data-campo="contacto"${(d.contacto || 'no') === v ? ' checked' : ''}><span>${t}</span></label>`).join('')}</div>
         </div>
         <div class="editor-interruptores">
           <label class="interruptor"><input type="checkbox" data-campo="abierto"${ed.abierto ? ' checked' : ''}><span class="interruptor-pista"></span>Recibe respuestas</label>
@@ -489,7 +495,7 @@ function alInput(e) {
       codigoTocado = true;
     } else if (c === 'abierto') ed.abierto = t.checked;
     else if (c === 'celebrar') d.celebrar = t.checked;
-    else if (c === 'modo' || c === 'tema' || c === 'ritmo') {
+    else if (c === 'modo' || c === 'tema' || c === 'ritmo' || c === 'contacto') {
       if (!t.checked) return;
       d[c] = t.value;
       tocar();
@@ -634,13 +640,22 @@ app.addEventListener('click', async (e) => {
       } catch { toast('No se pudo descargar. Probá de nuevo.'); }
       break;
     }
+    case 'csv-contactos': {
+      try {
+        const lista = await api.contactos(clave, b.dataset.codigo);
+        if (!lista.length) { toast('Todavía no hay contactos'); break; }
+        descargar(`${b.dataset.codigo}-contactos.csv`, contactosCsv(lista));
+      } catch { toast('No se pudo descargar. Probá de nuevo.'); }
+      break;
+    }
     case 'vaciar': {
       const q = quizzes.find((x) => x.codigo === b.dataset.codigo);
-      const r = prompt(`Se van a borrar ${plural(q.respuestas || 0, 'respuesta', 'respuestas')} de «${q.def.titulo}». El quiz queda igual.\n\nEscribí BORRAR para confirmar:`);
+      const r = prompt(`Se van a borrar ${plural(q.respuestas || 0, 'respuesta', 'respuestas')} y ${plural(q.contactos || 0, 'contacto', 'contactos')} de «${q.def.titulo}». El quiz queda igual.\n\nEscribí BORRAR para confirmar:`);
       if (r?.trim().toUpperCase() !== 'BORRAR') break;
       try {
         await api.borrarRespuestas(clave, q.codigo);
         q.respuestas = 0;
+        q.contactos = 0;
         toast('Respuestas borradas');
         vistaLista();
       } catch { toast('No se pudieron borrar. Probá de nuevo.'); }

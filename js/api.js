@@ -64,6 +64,8 @@ const remoto = {
   responderPregunta: (codigo, pid, alias, pregunta, valor, otro) =>
     rpc('responder_pregunta', { p_codigo: codigo, p_pid: pid, p_alias: alias || null, p_pregunta: pregunta, p_valor: valor, p_otro: otro || null }),
   miResultado: (codigo, pid) => rpc('mi_resultado', { p_codigo: codigo, p_pid: pid }),
+  // Contacto: se guarda aparte de las respuestas (no hay nada que los una)
+  dejarContacto: (codigo, nombre, telefono) => rpc('dejar_contacto', { p_codigo: codigo, p_nombre: nombre, p_telefono: telefono }),
   // Equipo
   quizzes: (c) => rpc('panel_quizzes', { p_clave: c }),
   guardar: (c, q) => rpc('panel_guardar', { p_clave: c, p_id: q.id || null, p_codigo: q.codigo, p_def: q.def, p_abierto: q.abierto }),
@@ -73,6 +75,7 @@ const remoto = {
   resultados: (c, codigo, desde = 0) => rpc('panel_resultados', { p_clave: c, p_codigo: codigo, p_desde: desde }),
   enVivo: (c, codigo, estado) => rpc('panel_en_vivo', { p_clave: c, p_codigo: codigo, p_estado: estado }),
   borrarRespuestas: (c, codigo) => rpc('panel_borrar_respuestas', { p_clave: c, p_codigo: codigo }),
+  contactos: (c, codigo) => rpc('panel_contactos', { p_clave: c, p_codigo: codigo }),
 };
 
 /* ── Modo local ── misma forma de datos que las funciones de la base */
@@ -88,6 +91,7 @@ function db() {
   d.cambio ??= d.seq;
   d.respuestas.forEach((r) => { r.cambio ??= r.id; });
   d.quizzes.forEach((q) => { q.en_vivo ??= {}; });
+  d.contactos ??= [];
   almacen.guardar(K_DB, d);
   return d;
 }
@@ -156,6 +160,26 @@ const local = {
     guardarDb(d);
     return espera({ id: f.id });
   },
+  async dejarContacto(codigo, nombre, telefono) {
+    const d = db();
+    const q = buscar(d, codigo);
+    if (!q) throw new ErrorApi('no existe', 'no-existe');
+    if (!q.abierto) throw new ErrorApi('cerrado', 'cerrado');
+    const n = String(nombre || '').trim().replace(/\s+/g, ' ').slice(0, 80);
+    const t = String(telefono || '').replace(/[^0-9+]/g, '');
+    if (n.length < 2 || !/^\+?[0-9]{6,15}$/.test(t)) throw new ErrorApi('datos inválidos', 'invalido');
+    const ya = d.contactos.find((c) => c.quiz_id === q.id && c.telefono === t);
+    if (ya) ya.nombre = n; else d.contactos.push({ quiz_id: q.id, nombre: n, telefono: t, fecha: new Date().toLocaleDateString('sv') });
+    guardarDb(d);
+    return espera({ ok: true });
+  },
+  async contactos(c, codigo) {
+    exigir(c);
+    const d = db();
+    const q = buscar(d, codigo);
+    return espera(d.contactos.filter((x) => x.quiz_id === q?.id).map(({ nombre, telefono, fecha }) => ({ nombre, telefono, fecha }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')));
+  },
   async miResultado(codigo, pid) {
     const d = db();
     const q = buscar(d, codigo);
@@ -167,7 +191,7 @@ const local = {
   async quizzes(c) {
     exigir(c);
     const d = db();
-    return espera(d.quizzes.map((q) => ({ ...q, respuestas: d.respuestas.filter((r) => r.quiz_id === q.id).length }))
+    return espera(d.quizzes.map((q) => ({ ...q, respuestas: d.respuestas.filter((r) => r.quiz_id === q.id).length, contactos: d.contactos.filter((x) => x.quiz_id === q.id).length }))
       .sort((a, b) => b.actualizado.localeCompare(a.actualizado)));
   },
   async guardar(c, q) {
@@ -220,6 +244,7 @@ const local = {
     const q = buscar(d, codigo);
     const antes = d.respuestas.length;
     d.respuestas = d.respuestas.filter((r) => r.quiz_id !== q?.id);
+    d.contactos = d.contactos.filter((x) => x.quiz_id !== q?.id);
     guardarDb(d);
     return espera(antes - d.respuestas.length);
   },
